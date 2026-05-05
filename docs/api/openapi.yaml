@@ -1,0 +1,2087 @@
+openapi: 3.1.0
+info:
+  title: Pramana API
+  version: 0.1.0
+  summary: Compliance training and tracking platform
+  description: |
+    The Pramana v1 API. Single-tenant deployment for John Thomas Corporate,
+    scoped to **SOX (Sarbanes-Oxley)** compliance training.
+
+    Authentication is via OIDC SSO; the bearer token is a JWT issued by the
+    customer's IdP. All endpoints require authentication unless noted as
+    `[Public]`.
+
+    See `docs/02_resolved_decisions.md` for the canonical specification this
+    API implements.
+  contact:
+    name: WeGoFwd
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+
+servers:
+  - url: https://api.pramana.example.com/v1
+    description: Production
+  - url: https://staging-api.pramana.example.com/v1
+    description: Staging
+  - url: http://localhost:8000/v1
+    description: Local development
+
+tags:
+  - name: Health
+    description: Liveness and readiness probes
+  - name: Users
+    description: User identity and lifecycle
+  - name: Courses
+    description: Course definition and version management
+  - name: Questions
+    description: Quiz question authoring
+  - name: Assignments
+    description: Course assignment lifecycle
+  - name: Attempts
+    description: Quiz attempts and answer submission
+  - name: Certificates
+    description: Completion certificates and verification
+  - name: Audit
+    description: Audit log search (Auditor / Compliance Admin)
+  - name: Exports
+    description: Auditor evidence exports
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ---------------------------------------------------------------------------
+  # Health
+  # ---------------------------------------------------------------------------
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      description: Returns 200 if the service process is alive. Does not check downstream dependencies.
+      security: []
+      responses:
+        "200":
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      description: Returns 200 only when the service can serve traffic (DB and Redis reachable).
+      security: []
+      responses:
+        "200":
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+        "503":
+          description: Service is not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ---------------------------------------------------------------------------
+  # Users
+  # ---------------------------------------------------------------------------
+  /users:
+    get:
+      tags: [Users]
+      summary: List users
+      description: Paginated list of users. Requires `ComplianceAdmin` or `Auditor` role.
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/UserStatus"
+        - name: user_type
+          in: query
+          schema:
+            $ref: "#/components/schemas/UserType"
+        - name: department
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          description: Free-text search over email, first_name, last_name
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Page of users
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+    post:
+      tags: [Users]
+      summary: Create a user
+      description: Requires `ComplianceAdmin`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreate"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Current authenticated user
+      responses:
+        "200":
+          description: The current user's record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /users/{user_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    get:
+      tags: [Users]
+      summary: Get a user
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Users]
+      summary: Update a user
+      description: |
+        Self-update is permitted for own profile fields. `ComplianceAdmin` may
+        update any user. Pseudonymized users may not be updated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /users/{user_id}/pseudonymize:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    post:
+      tags: [Users]
+      summary: Pseudonymize a user (GDPR-style erasure)
+      description: |
+        Replaces PII fields with hashed/null values while preserving training
+        evidence rows for SOX retention. **Irreversible.** Requires
+        `ComplianceAdmin` and an explicit `reason`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PseudonymizeRequest"
+      responses:
+        "200":
+          description: User pseudonymized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: User already pseudonymized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users/bulk-import:
+    post:
+      tags: [Users]
+      summary: Bulk-import users from CSV
+      description: |
+        Multipart upload of a CSV with columns: `email`, `first_name`,
+        `last_name`, `user_type`, `department`, `manager_email`. Requires
+        `ComplianceAdmin`.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: CSV file
+                dry_run:
+                  type: boolean
+                  default: false
+      responses:
+        "200":
+          description: Import summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkImportSummary"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ---------------------------------------------------------------------------
+  # Courses
+  # ---------------------------------------------------------------------------
+  /courses:
+    get:
+      tags: [Courses]
+      summary: List courses
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - name: archived
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: framework_tag
+          in: query
+          schema:
+            type: string
+            example: sox
+      responses:
+        "200":
+          description: Page of courses
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoursePage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    post:
+      tags: [Courses]
+      summary: Create a course
+      description: Requires `ContentAuthor` or `ComplianceAdmin`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CourseCreate"
+      responses:
+        "201":
+          description: Course created (no published version yet)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Course"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /courses/{course_id}:
+    parameters:
+      - $ref: "#/components/parameters/CourseId"
+    get:
+      tags: [Courses]
+      summary: Get a course
+      responses:
+        "200":
+          description: Course
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Course"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Courses]
+      summary: Update course metadata
+      description: |
+        Updates apply to course-level metadata only (title, description,
+        cooldown_days, pass_threshold_pct, framework_tags). Question content is
+        immutable; create a new course version to change it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CourseUpdate"
+      responses:
+        "200":
+          description: Updated course
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Course"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Courses]
+      summary: Archive a course
+      description: |
+        Archives the course (soft delete). Existing assignments continue, but
+        new assignments are blocked. Hard deletion is never supported.
+      responses:
+        "204":
+          description: Archived
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /courses/{course_id}/versions:
+    parameters:
+      - $ref: "#/components/parameters/CourseId"
+    get:
+      tags: [Courses]
+      summary: List versions of a course
+      responses:
+        "200":
+          description: Versions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CourseVersion"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Courses]
+      summary: Publish a new course version
+      description: |
+        Snapshots the current draft questions into a new version, makes it the
+        active version, and atomically deactivates the previous version.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CourseVersionCreate"
+      responses:
+        "201":
+          description: New version published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CourseVersion"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /courses/{course_id}/versions/{version_id}:
+    parameters:
+      - $ref: "#/components/parameters/CourseId"
+      - $ref: "#/components/parameters/VersionId"
+    get:
+      tags: [Courses]
+      summary: Get a specific course version
+      responses:
+        "200":
+          description: Version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CourseVersion"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ---------------------------------------------------------------------------
+  # Questions (always under a course version)
+  # ---------------------------------------------------------------------------
+  /courses/{course_id}/versions/{version_id}/questions:
+    parameters:
+      - $ref: "#/components/parameters/CourseId"
+      - $ref: "#/components/parameters/VersionId"
+    get:
+      tags: [Questions]
+      summary: List questions for a course version
+      responses:
+        "200":
+          description: Questions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Question"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Questions]
+      summary: Add a question to a draft version
+      description: Only permitted on versions that have not yet been published.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuestionCreate"
+      responses:
+        "201":
+          description: Question added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Question"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /questions/{question_id}:
+    parameters:
+      - $ref: "#/components/parameters/QuestionId"
+    patch:
+      tags: [Questions]
+      summary: Update a draft question
+      description: Only permitted while the parent course version is unpublished.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuestionUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Question"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Questions]
+      summary: Delete a draft question
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ---------------------------------------------------------------------------
+  # Assignments
+  # ---------------------------------------------------------------------------
+  /assignments:
+    get:
+      tags: [Assignments]
+      summary: List assignments (admin / manager view)
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - name: user_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: course_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/AssignmentStatus"
+        - name: overdue_only
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Page of assignments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssignmentPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Assignments]
+      summary: Create an assignment
+      description: |
+        Validates: (1) the user is not within the course's cooldown window,
+        (2) the user is not the course's content author (separation of duties),
+        (3) the course has an active published version.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignmentCreate"
+      responses:
+        "201":
+          description: Assignment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Assignment"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Cooldown active or separation-of-duties violation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /assignments/bulk:
+    post:
+      tags: [Assignments]
+      summary: Create assignments in bulk from CSV
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                course_id:
+                  type: string
+                  format: uuid
+                  description: Optional override; if absent, CSV must contain `course_id`.
+                due_at:
+                  type: string
+                  format: date-time
+                dry_run:
+                  type: boolean
+                  default: false
+      responses:
+        "200":
+          description: Import summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkImportSummary"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /assignments/me:
+    get:
+      tags: [Assignments]
+      summary: Current user's assignments
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/AssignmentStatus"
+      responses:
+        "200":
+          description: Current user's assignments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Assignment"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /assignments/{assignment_id}:
+    parameters:
+      - $ref: "#/components/parameters/AssignmentId"
+    get:
+      tags: [Assignments]
+      summary: Get an assignment
+      responses:
+        "200":
+          description: Assignment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Assignment"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /assignments/{assignment_id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/AssignmentId"
+    post:
+      tags: [Assignments]
+      summary: Cancel an assignment
+      description: |
+        Permitted only from `ASSIGNED` or `IN_PROGRESS`. Requires
+        `ComplianceAdmin`. Audit log entry includes the supplied reason.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelRequest"
+      responses:
+        "200":
+          description: Assignment cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Assignment"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Invalid state transition (assignment is terminal)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ---------------------------------------------------------------------------
+  # Attempts
+  # ---------------------------------------------------------------------------
+  /assignments/{assignment_id}/attempts:
+    parameters:
+      - $ref: "#/components/parameters/AssignmentId"
+    post:
+      tags: [Attempts]
+      summary: Start a new attempt
+      description: |
+        Transitions the assignment `ASSIGNED → IN_PROGRESS`. Validates FR7
+        (no other in-progress assignment) and `attempts_used < max_attempts`.
+        Idempotent: if an `IN_PROGRESS` attempt already exists, returns it.
+      responses:
+        "201":
+          description: Attempt started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attempt"
+        "200":
+          description: Existing in-progress attempt returned (idempotent)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attempt"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Concurrent assignment / max attempts / cooldown violation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /attempts/{attempt_id}:
+    parameters:
+      - $ref: "#/components/parameters/AttemptId"
+    get:
+      tags: [Attempts]
+      summary: Get an attempt with its questions
+      description: |
+        For the trainee, returns questions with their selected answers (if
+        any) but never the canonical correct answer until after submission.
+        For auditors and admins, full detail is returned.
+      responses:
+        "200":
+          description: Attempt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttemptDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /attempts/{attempt_id}/answers:
+    parameters:
+      - $ref: "#/components/parameters/AttemptId"
+    put:
+      tags: [Attempts]
+      summary: Save an answer (autosave-friendly)
+      description: |
+        Idempotent per `(attempt_id, question_id)`. Submitting the same answer
+        twice has no additional effect. Permitted only while the attempt is
+        `IN_PROGRESS`.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Optional key to deduplicate retries
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnswerUpsert"
+      responses:
+        "204":
+          description: Answer saved
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Attempt is no longer in progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /attempts/{attempt_id}/submit:
+    parameters:
+      - $ref: "#/components/parameters/AttemptId"
+    post:
+      tags: [Attempts]
+      summary: Submit and score the attempt
+      description: |
+        Finalises the attempt, computes the score, and transitions the parent
+        assignment to `PASSED`, `FAILED` (with retry allowed), or `BLOCKED`
+        per Section 4 of the resolved decisions doc. On `PASSED`, a certificate
+        is issued. **Idempotent.**
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttemptSubmit"
+      responses:
+        "200":
+          description: Submission result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttemptSubmissionResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Attempt is not in progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ---------------------------------------------------------------------------
+  # Certificates
+  # ---------------------------------------------------------------------------
+  /certificates:
+    get:
+      tags: [Certificates]
+      summary: List certificates
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - name: user_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: course_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: include_expired
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Page of certificates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificatePage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /certificates/{certificate_id}:
+    parameters:
+      - $ref: "#/components/parameters/CertificateId"
+    get:
+      tags: [Certificates]
+      summary: Get a certificate
+      responses:
+        "200":
+          description: Certificate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Certificate"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /certificates/{certificate_id}/pdf:
+    parameters:
+      - $ref: "#/components/parameters/CertificateId"
+    get:
+      tags: [Certificates]
+      summary: Download certificate PDF
+      responses:
+        "200":
+          description: PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /certificates/verify/{verification_code}:
+    get:
+      tags: [Certificates]
+      summary: Verify a certificate by its code
+      description: |
+        `[Public]` — no authentication. Returns minimal verification info
+        (validity, issued_at, course title, user display name). Used for
+        third-party verification (e.g. job applications).
+      security: []
+      parameters:
+        - name: verification_code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificateVerification"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ---------------------------------------------------------------------------
+  # Audit log
+  # ---------------------------------------------------------------------------
+  /audit:
+    get:
+      tags: [Audit]
+      summary: Search the audit log
+      description: Requires `Auditor` or `ComplianceAdmin`.
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - name: actor_user_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: entity_type
+          in: query
+          schema:
+            type: string
+        - name: entity_id
+          in: query
+          schema:
+            type: string
+        - name: event_type
+          in: query
+          schema:
+            type: string
+        - name: occurred_after
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: occurred_before
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Page of audit log entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditLogPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ---------------------------------------------------------------------------
+  # Auditor exports
+  # ---------------------------------------------------------------------------
+  /exports/population:
+    get:
+      tags: [Exports]
+      summary: Export the SOX-in-scope population
+      description: CSV download. Requires `Auditor` or `ComplianceAdmin`.
+      parameters:
+        - name: as_of
+          in: query
+          schema:
+            type: string
+            format: date
+            description: Point-in-time snapshot date (defaults to today)
+      responses:
+        "200":
+          description: CSV
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /exports/training-matrix:
+    get:
+      tags: [Exports]
+      summary: Export the training matrix
+      description: |
+        CSV — rows are users, columns are courses, cells are completion status
+        (`PASSED` with date, `BLOCKED`, `IN_PROGRESS`, etc.) for the period.
+      parameters:
+        - name: period_start
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: period_end
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: framework_tag
+          in: query
+          schema:
+            type: string
+            example: sox
+      responses:
+        "200":
+          description: CSV
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /exports/exception-report:
+    get:
+      tags: [Exports]
+      summary: Export overdue / blocked / expired assignments
+      parameters:
+        - name: as_of
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: CSV
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /exports/users/{user_id}/audit-binder:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    get:
+      tags: [Exports]
+      summary: Per-user audit binder (PDF)
+      description: |
+        Bundles the user's assignments, attempts, certificates, and audit-log
+        entries into a single PDF for the period. Used for SOX sample testing.
+      parameters:
+        - name: period_start
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: period_end
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+# ===========================================================================
+# Components
+# ===========================================================================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        OIDC-issued JWT in the `Authorization: Bearer <token>` header. The
+        token's `sub` claim is mapped to a Pramana `user_id` at first login.
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: page_size
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CourseId:
+      name: course_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    VersionId:
+      name: version_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    QuestionId:
+      name: question_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AssignmentId:
+      name: assignment_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AttemptId:
+      name: attempt_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CertificateId:
+      name: certificate_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Authenticated but not authorised
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource does not exist
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Uniqueness or state conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ValidationError:
+      description: Input failed validation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ValidationErrorResponse"
+
+  schemas:
+    # ----- Common ------------------------------------------------------
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, error]
+        version:
+          type: string
+          example: 0.1.0
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable error code
+          example: cooldown_active
+        message:
+          type: string
+          example: Cooldown is active until 2027-01-15.
+        context:
+          type: object
+          additionalProperties: true
+
+    ValidationErrorResponse:
+      allOf:
+        - $ref: "#/components/schemas/ErrorResponse"
+        - type: object
+          properties:
+            errors:
+              type: array
+              items:
+                type: object
+                required: [field, message]
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+
+    Pagination:
+      type: object
+      required: [page, page_size, total]
+      properties:
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+
+    BulkImportSummary:
+      type: object
+      required: [total_rows, created, skipped, errors]
+      properties:
+        total_rows:
+          type: integer
+        created:
+          type: integer
+        updated:
+          type: integer
+        skipped:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: object
+            required: [row, message]
+            properties:
+              row:
+                type: integer
+              message:
+                type: string
+
+    # ----- Enums -------------------------------------------------------
+    UserStatus:
+      type: string
+      enum: [active, inactive, on_leave]
+    UserType:
+      type: string
+      enum: [employee, contractor]
+    RoleName:
+      type: string
+      enum:
+        [trainee, manager, content_author, compliance_admin, auditor]
+    QuestionType:
+      type: string
+      enum: [single_select, true_false]
+      description: |
+        v1 supports single-select multiple choice and true/false. Multi-select
+        and free-text are deferred to v2.
+    AssignmentStatus:
+      type: string
+      enum:
+        [assigned, in_progress, passed, blocked, cancelled, expired]
+    AttemptOutcome:
+      type: string
+      enum: [pass, fail, in_progress]
+    AssignmentTerminalReason:
+      type: string
+      enum: [passed, max_attempts_failed, cancelled_by_admin, expired_due_date]
+
+    # ----- User --------------------------------------------------------
+    User:
+      type: object
+      required:
+        [
+          user_id,
+          email,
+          first_name,
+          last_name,
+          user_type,
+          status,
+          pseudonymized,
+          created_at,
+        ]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        first_name:
+          type: string
+        last_name:
+          type: string
+        user_type:
+          $ref: "#/components/schemas/UserType"
+        department:
+          type: string
+          nullable: true
+        manager_user_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          $ref: "#/components/schemas/UserStatus"
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoleName"
+        pseudonymized:
+          type: boolean
+          description: True when PII has been replaced under GDPR-style erasure
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UserCreate:
+      type: object
+      required: [email, first_name, last_name, user_type]
+      properties:
+        email:
+          type: string
+          format: email
+        first_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        last_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        user_type:
+          $ref: "#/components/schemas/UserType"
+        department:
+          type: string
+        manager_email:
+          type: string
+          format: email
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoleName"
+
+    UserUpdate:
+      type: object
+      properties:
+        first_name:
+          type: string
+        last_name:
+          type: string
+        department:
+          type: string
+        manager_user_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          $ref: "#/components/schemas/UserStatus"
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoleName"
+
+    PseudonymizeRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 10
+          description: Audit-log reason for the irreversible pseudonymization
+
+    UserPage:
+      type: object
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    # ----- Course ------------------------------------------------------
+    Course:
+      type: object
+      required:
+        [
+          course_id,
+          title,
+          cooldown_days,
+          pass_threshold_pct,
+          framework_tags,
+          created_at,
+          archived,
+        ]
+      properties:
+        course_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        current_version_id:
+          type: string
+          format: uuid
+          nullable: true
+        cooldown_days:
+          type: integer
+          minimum: 0
+        pass_threshold_pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+        framework_tags:
+          type: array
+          items:
+            type: string
+          example: [sox]
+        topic_tags:
+          type: array
+          items:
+            type: string
+          example: [sox.ethics, sox.fcpa]
+        created_at:
+          type: string
+          format: date-time
+        archived:
+          type: boolean
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CourseCreate:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+        cooldown_days:
+          type: integer
+          minimum: 0
+          default: 365
+        pass_threshold_pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+          default: 80
+        framework_tags:
+          type: array
+          items:
+            type: string
+        topic_tags:
+          type: array
+          items:
+            type: string
+
+    CourseUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        cooldown_days:
+          type: integer
+          minimum: 0
+        pass_threshold_pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+        framework_tags:
+          type: array
+          items:
+            type: string
+        topic_tags:
+          type: array
+          items:
+            type: string
+
+    CoursePage:
+      type: object
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Course"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    CourseVersion:
+      type: object
+      required:
+        [
+          version_id,
+          course_id,
+          version_number,
+          published_at,
+          is_active,
+        ]
+      properties:
+        version_id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        version_number:
+          type: integer
+          minimum: 1
+        published_at:
+          type: string
+          format: date-time
+        published_by_user_id:
+          type: string
+          format: uuid
+        video_asset_id:
+          type: string
+        min_watch_pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+          default: 0
+        is_active:
+          type: boolean
+        is_material_change:
+          type: boolean
+          default: false
+
+    CourseVersionCreate:
+      type: object
+      properties:
+        video_asset_id:
+          type: string
+          description: S3 key of the uploaded video asset
+        min_watch_pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+          default: 0
+        is_material_change:
+          type: boolean
+          default: false
+
+    # ----- Question ----------------------------------------------------
+    Question:
+      type: object
+      required:
+        [
+          question_id,
+          course_version_id,
+          question_text,
+          question_type,
+          weight,
+          options,
+        ]
+      properties:
+        question_id:
+          type: string
+          format: uuid
+        course_version_id:
+          type: string
+          format: uuid
+        question_text:
+          type: string
+        question_type:
+          $ref: "#/components/schemas/QuestionType"
+        weight:
+          type: number
+          minimum: 0.1
+          default: 1.0
+        version_number:
+          type: integer
+          minimum: 1
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnswerOption"
+
+    AnswerOption:
+      type: object
+      required: [option_id, option_text, display_order]
+      properties:
+        option_id:
+          type: string
+          format: uuid
+        option_text:
+          type: string
+        is_correct:
+          type: boolean
+          description: Returned only to authors and auditors. Hidden from trainees pre-submission.
+        display_order:
+          type: integer
+
+    QuestionCreate:
+      type: object
+      required: [question_text, question_type, options]
+      properties:
+        question_text:
+          type: string
+          minLength: 1
+        question_type:
+          $ref: "#/components/schemas/QuestionType"
+        weight:
+          type: number
+          default: 1.0
+        options:
+          type: array
+          minItems: 2
+          items:
+            type: object
+            required: [option_text, is_correct, display_order]
+            properties:
+              option_text:
+                type: string
+              is_correct:
+                type: boolean
+              display_order:
+                type: integer
+
+    QuestionUpdate:
+      type: object
+      properties:
+        question_text:
+          type: string
+        weight:
+          type: number
+        options:
+          type: array
+          items:
+            type: object
+            properties:
+              option_text:
+                type: string
+              is_correct:
+                type: boolean
+              display_order:
+                type: integer
+
+    # ----- Assignment --------------------------------------------------
+    Assignment:
+      type: object
+      required:
+        [
+          assignment_id,
+          user_id,
+          course_id,
+          course_version_id,
+          status,
+          assigned_at,
+          attempts_used,
+        ]
+      properties:
+        assignment_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        course_version_id:
+          type: string
+          format: uuid
+          description: Snapshotted at assignment creation
+        assigned_at:
+          type: string
+          format: date-time
+        assigned_by_user_id:
+          type: string
+          format: uuid
+        due_at:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          $ref: "#/components/schemas/AssignmentStatus"
+        attempts_used:
+          type: integer
+          minimum: 0
+        terminal_at:
+          type: string
+          format: date-time
+          nullable: true
+        terminal_reason:
+          $ref: "#/components/schemas/AssignmentTerminalReason"
+        cooldown_until:
+          type: string
+          format: date-time
+          nullable: true
+
+    AssignmentCreate:
+      type: object
+      required: [user_id, course_id]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        due_at:
+          type: string
+          format: date-time
+
+    CancelRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 10
+
+    AssignmentPage:
+      type: object
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Assignment"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    # ----- Attempt -----------------------------------------------------
+    Attempt:
+      type: object
+      required:
+        [
+          attempt_id,
+          assignment_id,
+          attempt_number,
+          started_at,
+          outcome,
+        ]
+      properties:
+        attempt_id:
+          type: string
+          format: uuid
+        assignment_id:
+          type: string
+          format: uuid
+        attempt_number:
+          type: integer
+          minimum: 1
+        started_at:
+          type: string
+          format: date-time
+        submitted_at:
+          type: string
+          format: date-time
+          nullable: true
+        score_pct:
+          type: number
+          nullable: true
+        outcome:
+          $ref: "#/components/schemas/AttemptOutcome"
+        total_active_seconds:
+          type: integer
+          nullable: true
+
+    AttemptDetail:
+      allOf:
+        - $ref: "#/components/schemas/Attempt"
+        - type: object
+          properties:
+            questions:
+              type: array
+              items:
+                $ref: "#/components/schemas/AttemptQuestion"
+
+    AttemptQuestion:
+      type: object
+      required: [question_id, question_text, question_type, options]
+      properties:
+        question_id:
+          type: string
+          format: uuid
+        question_text:
+          type: string
+        question_type:
+          $ref: "#/components/schemas/QuestionType"
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnswerOption"
+        selected_option_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        is_correct:
+          type: boolean
+          nullable: true
+          description: Only populated after attempt submission
+
+    AnswerUpsert:
+      type: object
+      required: [question_id, selected_option_ids]
+      properties:
+        question_id:
+          type: string
+          format: uuid
+        selected_option_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        time_spent_seconds:
+          type: integer
+          minimum: 0
+
+    AttemptSubmit:
+      type: object
+      required: [attestation_accepted]
+      properties:
+        attestation_accepted:
+          type: boolean
+          description: Must be true. Records the SOX user attestation.
+        client_total_active_seconds:
+          type: integer
+          description: Client-reported active time; server validates against question timestamps
+
+    AttemptSubmissionResult:
+      type: object
+      required:
+        [
+          attempt_id,
+          score_pct,
+          outcome,
+          assignment_status,
+          retry_available,
+        ]
+      properties:
+        attempt_id:
+          type: string
+          format: uuid
+        score_pct:
+          type: number
+        outcome:
+          $ref: "#/components/schemas/AttemptOutcome"
+        assignment_status:
+          $ref: "#/components/schemas/AssignmentStatus"
+        retry_available:
+          type: boolean
+        retry_question_count:
+          type: integer
+          description: If retry_available, the number of questions in the next attempt
+        certificate_id:
+          type: string
+          format: uuid
+          nullable: true
+
+    # ----- Certificate -------------------------------------------------
+    Certificate:
+      type: object
+      required:
+        [
+          certificate_id,
+          user_id,
+          course_id,
+          course_version_id,
+          issued_at,
+          expires_at,
+          verification_code,
+        ]
+      properties:
+        certificate_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        course_version_id:
+          type: string
+          format: uuid
+        issued_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        verification_code:
+          type: string
+        attestation_text_version:
+          type: string
+        attestation_ip:
+          type: string
+        attestation_timestamp:
+          type: string
+          format: date-time
+
+    CertificateVerification:
+      type: object
+      required: [valid, issued_at, course_title]
+      properties:
+        valid:
+          type: boolean
+        issued_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        course_title:
+          type: string
+        recipient_display_name:
+          type: string
+          description: Pseudonymized to first name + last initial for privacy
+
+    CertificatePage:
+      type: object
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Certificate"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    # ----- Audit -------------------------------------------------------
+    AuditLogEntry:
+      type: object
+      required: [audit_id, entity_type, event_type, occurred_at]
+      properties:
+        audit_id:
+          type: integer
+          format: int64
+        actor_user_id:
+          type: string
+          format: uuid
+          nullable: true
+        entity_type:
+          type: string
+          example: assignment
+        entity_id:
+          type: string
+        event_type:
+          type: string
+          example: assignment.passed
+        payload:
+          type: object
+          additionalProperties: true
+        occurred_at:
+          type: string
+          format: date-time
+        prev_audit_hash:
+          type: string
+          nullable: true
+
+    AuditLogPage:
+      type: object
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLogEntry"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
