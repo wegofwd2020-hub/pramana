@@ -16,6 +16,24 @@ Compliance training is one of those controls — companies train employees on fi
 
 The relevant standards governing how auditors assess these controls are **PCAOB Auditing Standard 2201** (formerly AS 5).
 
+### Citable sections
+
+Stable clause anchors cited by SOX training content's `source_definitions` (the
+same role the FCPA pillars play in `framework_fcpa.md`):
+
+#### Section 302
+CEO/CFO certification of the accuracy of financial reports and of disclosure controls.
+
+#### Section 404
+Management assessment of internal control over financial reporting (ICFR) — the
+provision the training requirement flows from.
+
+#### Section 806
+Whistleblower protection for employees who report fraud or securities violations.
+
+#### Section 802
+Records retention (7 years) and anti-destruction provisions.
+
 ---
 
 ## 2. Why It Matters for Compliance Training Systems
