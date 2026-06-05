@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator, Mapping, Sequence
-from dataclasses import dataclass
+from functools import lru_cache
 from typing import Annotated, Any, Protocol
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pramana.config import get_settings
@@ -23,8 +23,25 @@ from pramana.domain.content_approval import utcnow
 from pramana.domain.enums import ContentDraftStatus
 from pramana.exceptions import AuthenticationError
 from pramana.services import content_review
+from pramana.services.auth import (
+    JwksKeySource,
+    OidcJwtVerifier,
+    Principal,
+    TokenVerifier,
+    resolve_principal,
+)
 from pramana.services.consumer_library import ingest_consumable_package
 from pramana.services.package_signing import HmacSignatureVerifier
+
+__all__ = [
+    "Principal",
+    "get_content_review_service",
+    "get_db_session",
+    "get_package_ingestor",
+    "get_principal",
+    "get_signature_verifier",
+    "get_token_verifier",
+]
 
 
 async def get_db_session() -> AsyncIterator[AsyncSession]:
@@ -89,24 +106,53 @@ def get_package_ingestor(
 
 
 # ---------------------------------------------------------------------------
-# Current principal (user + tenant)
+# Authentication — OIDC bearer token → Principal
 # ---------------------------------------------------------------------------
-@dataclass(frozen=True, slots=True)
-class Principal:
-    """The authenticated caller: their ``user_id`` and ``tenant_id``."""
+async def _httpx_get_json(url: str) -> Mapping[str, Any]:
+    import httpx
 
-    user_id: uuid.UUID
-    tenant_id: uuid.UUID
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        data: Mapping[str, Any] = resp.json()
+        return data
 
 
-def get_principal() -> Principal:
-    """Resolve the authenticated principal from the request.
+@lru_cache(maxsize=1)
+def get_token_verifier() -> TokenVerifier:
+    """Build the process-singleton OIDC verifier (JWKS cache persists across requests)."""
+    s = get_settings()
+    return OidcJwtVerifier(
+        issuer=s.sso_issuer_url,
+        audience=s.jwt_audience,
+        algorithms=[s.jwt_algorithm],
+        key_source=JwksKeySource(s.sso_issuer_url, http_get_json=_httpx_get_json),
+    )
 
-    Auth (OIDC/JWT → ``user_id``) is not wired yet, so this raises by default;
-    tests override it. Real deployment will map the JWT ``sub`` claim to a Pramana
-    user and tenant here.
+
+def _bearer_token(request: Request) -> str:
+    header = request.headers.get("Authorization")
+    if not header:
+        raise AuthenticationError("missing Authorization header")
+    scheme, _, token = header.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise AuthenticationError("expected an 'Authorization: Bearer <token>' header")
+    return token
+
+
+async def get_principal(
+    request: Request,
+    verifier: Annotated[TokenVerifier, Depends(get_token_verifier)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> Principal:
+    """Resolve the authenticated principal from the request's OIDC bearer token.
+
+    Extracts the bearer token, verifies it (signature + ``iss``/``aud``/``exp``)
+    against the issuer's JWKS, and maps the ``sub`` claim to a Pramana user.
     """
-    raise AuthenticationError("authentication is not configured")
+    token = _bearer_token(request)
+    claims = await verifier.verify(token)
+    return await resolve_principal(session, claims)
 
 
 # ---------------------------------------------------------------------------
