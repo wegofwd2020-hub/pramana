@@ -11,6 +11,61 @@ multiple industries.
 
 ---
 
+## Mental model — Create → Manufacture → Approve → Present
+
+At the highest level there are **four phases**, and the two product boundaries are
+**artifact handoffs** (a *Package Request* out, a *Consumable Package* back), per
+Mentible ADR-011:
+
+1. **Create** *(Pramana)* — say **what** is needed: the regulation's truth (the
+   **definitions library**, `docs/frameworks/*`) plus a **Package Request** distilled
+   from a **user story**.
+2. **Manufacture** *(Mentible)* — make the **thing**: generate + package the
+   **Consumable Package** (modules + quiz + visuals + EPUB3/PDF), signed and
+   provenance-stamped.
+3. **Approve** *(Pramana — the gate)* — verify signature + `content_hash`, hold it as
+   an untrusted `RECEIVED` draft until a **human approves** it (separation of duties),
+   then publish to an immutable `CourseVersion`. *Manufactured content never reaches a
+   learner un-approved — "the AI wrote it" is not a defence.*
+4. **Present** *(Pramana)* — assign → quiz → certify → **prove** (audit evidence).
+
+```mermaid
+flowchart LR
+  subgraph CREATE["1 · CREATE — Pramana"]
+    DEF["Definitions library<br/>(source of truth)"]
+    US["User story<br/>(capability)"]
+    REQ["Package Request<br/>(content brief)"]
+    US --> REQ
+    DEF --> REQ
+  end
+  subgraph MAKE["2 · MANUFACTURE — Mentible"]
+    GEN["Generate<br/>modules + quiz + visuals"]
+    PKG["Package + sign<br/>Consumable Package"]
+    GEN --> PKG
+  end
+  subgraph GATE["3 · APPROVE — Pramana (the gate)"]
+    VER["Verify signature + content_hash"]
+    REV["RECEIVED draft<br/>human approve (SoD)"]
+    PUB["Publish → immutable CourseVersion"]
+    VER --> REV --> PUB
+  end
+  subgraph SHOW["4 · PRESENT — Pramana"]
+    ASN["Assign → quiz → certify"]
+    AUD["Audit evidence (prove)"]
+    ASN --> AUD
+  end
+  REQ -->|push request| GEN
+  PKG -->|push package| VER
+  PUB --> ASN
+```
+
+> **Vocabulary:** "story" is used in two senses — the **user story** (a Pramana
+> product-capability *spec*, the artifacts in this folder) and the **training
+> narrative** Mentible manufactures and Pramana presents (the *Consumable Package*).
+> The user story is the spec; the package is the presentation.
+
+---
+
 ## 1. How this is organized
 
 Stories are filed **framework-first** — one folder per regulation/standard —
