@@ -22,6 +22,24 @@ Unlike SOX or HIPAA, GDPR does **not have a dedicated training mandate**. Traini
 
 In practice, regulators expect documented, periodic training as part of the accountability evidence trail.
 
+### Citable articles
+
+Stable clause anchors cited by GDPR training content's `source_definitions`:
+
+#### Data protection awareness
+Articles 32 & 39(1)(b) — staff awareness/training as a technical-and-organisational
+measure, monitored by the DPO.
+
+#### Data subject rights
+Articles 15-22 — access, rectification, erasure, portability, objection.
+
+#### Breach notification
+Article 33 — detect and notify a personal-data breach within 72 hours.
+
+#### Right to erasure
+Article 17 — reconciled with retention via pseudonymization (Article 17(3)(b)). Note
+GDPR also governs trainees' **own** records held in this system.
+
 ---
 
 ## 2. Why It Matters for Compliance Training Systems

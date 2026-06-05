@@ -177,7 +177,7 @@ publish → the story's delivery criteria operate on the published course.
 | Foreign Corrupt Practices Act | `FCPA` | [`fcpa/`](fcpa/README.md) | 🚧 In progress |
 | Sarbanes-Oxley | `SOX` | [`sox/`](sox/README.md) | 🚧 In progress |
 | HIPAA | `HIPAA` | [`hipaa/`](hipaa/README.md) | 🚧 In progress |
-| GDPR | `GDPR` | _planned_ | — |
+| GDPR | `GDPR` | [`gdpr/`](gdpr/README.md) | 🚧 In progress |
 | ISO 27001 | `ISO27001` | _planned_ | — |
 | PCI DSS | `PCIDSS` | _planned_ | — |
 
