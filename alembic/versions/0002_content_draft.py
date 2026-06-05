@@ -28,6 +28,7 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     content_draft_status = postgresql.ENUM(
         "draft",
+        "received",
         "in_review",
         "approved",
         "published",
@@ -61,6 +62,7 @@ def upgrade() -> None:
         sa.Column("body", postgresql.JSONB(), nullable=False),
         sa.Column("source_citations", postgresql.JSONB(), nullable=True),
         # Provenance
+        sa.Column("gen_engine", sa.String(60), nullable=True),
         sa.Column("gen_model", sa.String(120), nullable=True),
         sa.Column("gen_provider", sa.String(60), nullable=True),
         sa.Column("gen_prompt_version", sa.String(60), nullable=True),
@@ -71,6 +73,11 @@ def upgrade() -> None:
             sa.ForeignKey("user_account.user_id", ondelete="SET NULL"),
             nullable=True,
         ),
+        # Ingestion (Mentible Consumable Package, ADR-011)
+        sa.Column("package_id", postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column("package_version", sa.Integer(), nullable=True),
+        sa.Column("package_content_hash", sa.String(128), nullable=True),
+        sa.Column("signature", sa.Text(), nullable=True),
         # Review / approval evidence
         sa.Column("review_notes", sa.Text(), nullable=True),
         sa.Column(
@@ -114,6 +121,10 @@ def upgrade() -> None:
             "OR approved_by_user_id <> generated_by_user_id",
             name="ck_content_draft_separation_of_duties",
         ),
+        sa.CheckConstraint(
+            "(package_id IS NULL) = (package_version IS NULL)",
+            name="ck_content_draft_package_ref_pair",
+        ),
     )
     op.create_index("ix_content_draft_tenant_id", "content_draft", ["tenant_id"])
     op.create_index("ix_content_draft_course_id", "content_draft", ["course_id"])
@@ -126,9 +137,19 @@ def upgrade() -> None:
     op.create_index(
         "ix_content_draft_course_status", "content_draft", ["course_id", "status"]
     )
+    # Ingestion idempotency: one draft per delivered (tenant, package_id, version).
+    # Partial so locally-authored drafts (NULL package_id) don't collide.
+    op.create_index(
+        "uq_content_draft_package",
+        "content_draft",
+        ["tenant_id", "package_id", "package_version"],
+        unique=True,
+        postgresql_where=sa.text("package_id IS NOT NULL"),
+    )
 
 
 def downgrade() -> None:
+    op.drop_index("uq_content_draft_package", table_name="content_draft")
     op.drop_index("ix_content_draft_course_status", table_name="content_draft")
     op.drop_index("ix_content_draft_generated_by_user_id", table_name="content_draft")
     op.drop_index("ix_content_draft_status", table_name="content_draft")
