@@ -61,14 +61,17 @@ AI-drafted and **human-approved** before it is ever assignable (see ADR-011 /
 | [US-FCPA-0004](US-FCPA-0004-books-records-internal-controls.md) | Books & records / internal-controls training (accounting pillar) | employee | should | accounting | draft |
 | [US-FCPA-0005](US-FCPA-0005-human-approved-fcpa-content.md) | Human-approved FCPA content before assignment | content-author | must | both | draft |
 | [US-FCPA-0006](US-FCPA-0006-audit-evidence-export.md) | FCPA audit-evidence export for a regulator/auditor | auditor | must | both | draft |
+| [US-FCPA-0007](US-FCPA-0007-high-risk-geography-targeting.md) | High-risk geography & role risk-tier targeting | compliance-officer | must | anti-bribery | draft |
+| [US-FCPA-0008](US-FCPA-0008-facilitation-payment-attestation.md) | Facilitation-payment policy attestation | employee | should | anti-bribery | draft |
+| [US-FCPA-0009](US-FCPA-0009-ma-successor-liability-trigger.md) | M&A successor-liability onboarding training trigger | compliance-officer | should | both | draft |
+| [US-FCPA-0010](US-FCPA-0010-refresher-cadence-reassignment-trigger.md) | Annual refresher cadence + policy-change re-assignment trigger | compliance-officer | must | both | draft |
+| [US-FCPA-0011](US-FCPA-0011-board-program-dashboard.md) | Board / audit-committee FCPA program dashboard | governance-board | should | both | draft |
 
-### Planned (not yet written)
+### Further ideas (not yet written)
 
-- High-risk geography targeting (assign by country/role risk tier).
-- Facilitation-payment policy attestation.
-- M&A successor-liability onboarding training trigger.
-- Annual refresher cadence + policy-change re-assignment trigger.
-- Board / audit-committee FCPA program dashboard (`governance-board`).
+- Pre-close third-party **due-diligence questionnaires / risk scoring** (beyond training).
+- Cross-framework **board rollup** (FCPA + SOX + …) once more frameworks exist.
+- Localized G&H thresholds per market as a content/policy concern.
 
 ## 5. Traceability
 
