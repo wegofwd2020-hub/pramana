@@ -100,6 +100,11 @@ docs/user-stories/
 Cross-framework stories (a capability that serves several frameworks) are filed
 under their **primary** framework and list the others in `also_satisfies`.
 
+**`PLATFORM`** is a reserved non-framework code for **cross-cutting product
+surfaces** (the library, player, commissioning, and review/approval UIs) that serve
+*every* framework. They live under [`platform/`](platform/README.md) and use
+`framework: platform`.
+
 ## 3. Story metadata (YAML front-matter)
 
 Every story begins with this block. Controlled vocabularies are listed in §4.
@@ -168,6 +173,7 @@ publish → the story's delivery criteria operate on the published course.
 
 | Framework | Code | Folder | Status |
 |---|---|---|---|
+| _Platform (cross-cutting surfaces)_ | `PLATFORM` | [`platform/`](platform/README.md) | 🚧 In progress |
 | Foreign Corrupt Practices Act | `FCPA` | [`fcpa/`](fcpa/README.md) | 🚧 In progress |
 | Sarbanes-Oxley | `SOX` | _planned_ | — |
 | HIPAA | `HIPAA` | _planned_ | — |
