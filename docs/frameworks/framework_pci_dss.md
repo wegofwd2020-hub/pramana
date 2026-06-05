@@ -17,6 +17,22 @@ Training requirements are imposed via:
 - **Requirement 12.6** — Security awareness program, mandating periodic training for all personnel with access to the cardholder data environment (CDE).
 - **Requirement 6.2.2** (for v4.0) — Software development personnel must be trained on secure development.
 
+### Citable requirements
+
+Stable anchors cited by PCI DSS training content's `source_definitions`:
+
+#### Security awareness program
+Requirement 12.6 — a multi-method security awareness program for all CDE-access personnel
+(on-hire, at least annually, on material change).
+
+#### Secure development training
+Requirement 6.2.2 — software-development personnel trained at least annually in secure
+development (OWASP Top 10 or equivalent).
+
+#### Acknowledgement
+Requirement 12.8 — personnel acknowledge they have read and understood the security policy
+(satisfied by the attestation mechanism).
+
 ---
 
 ## 2. Why It Matters for Compliance Training Systems

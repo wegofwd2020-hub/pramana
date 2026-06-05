@@ -179,7 +179,7 @@ publish → the story's delivery criteria operate on the published course.
 | HIPAA | `HIPAA` | [`hipaa/`](hipaa/README.md) | 🚧 In progress |
 | GDPR | `GDPR` | [`gdpr/`](gdpr/README.md) | 🚧 In progress |
 | ISO 27001 | `ISO27001` | [`iso27001/`](iso27001/README.md) | 🚧 In progress |
-| PCI DSS | `PCIDSS` | _planned_ | — |
+| PCI DSS | `PCIDSS` | [`pci-dss/`](pci-dss/README.md) | 🚧 In progress |
 
 ---
 
