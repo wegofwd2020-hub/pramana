@@ -4,8 +4,14 @@
 **Stage:** Proposal — awaiting decision
 **Status:** Proposed
 **Relates to:** `docs/02_resolved_decisions.md` (FR1–FR8, assignment state machine),
-`docs/frameworks/framework_sox.md`, `docs/api/openapi.yaml`. Introduces a new
-**content-authoring sub-domain** upstream of Courses/Assignments.
+`docs/frameworks/framework_sox.md`, `docs/api/openapi.yaml`, and — authoritative
+for the integration boundary — **Mentible ADR-011**
+(`StudyBuddy_SelfLearner/docs/adr/ADR-011-pramana-compliance-integration.md`).
+Introduces a new **content-authoring / ingestion sub-domain** upstream of
+Courses/Assignments.
+**Amended 2026-06-05 (North Star):** generation happens in **Mentible** and is
+delivered to Pramana's `consumer_library` as a package — see §5; this supersedes
+the earlier "shared generation service inside Pramana" framing.
 **Decision-maker:** Sivakumar Mambakkam / WeGoFwd
 
 ---
@@ -89,17 +95,35 @@ One approved `CourseContentVersion` is the source; rendered artifacts are derive
   based on (traceable to `docs/frameworks/framework_sox.md` §302/§404), so a
   reviewer can verify against the regulation, not just vibes.
 
-## 5. Generation pipeline (reuse, don't couple)
+## 5. Where generation happens — the Mentible handoff (NORTH STAR)
 
-- The LLM capability is reached through a **shared / vendored generation service**,
-  not a runtime dependency on StudyBuddy's backend (those are separate products;
-  StudyBuddy ADR-002 forbids cross-product imports). Same discipline here.
-- Every draft carries **provenance**: model, provider, prompt-template version,
-  generation timestamp. Stored on the draft and on the approved version so we can
-  (a) audit how content was produced and (b) flag content made with an outdated
-  model/prompt and offer re-draft (drift detection).
-- Generation is **deterministic-enough + retried/validated** against the content
-  schema before a human ever sees it (no malformed drafts in review).
+**Generation is NOT a service Pramana calls.** Per the North Star, **Mentible**
+is the external **generation + packaging engine**: it consumes Pramana's
+definitions library (`docs/frameworks/*`) and produces a **Consumable Package**
+(deck/lessons + quiz + animated visuals + compiled EPUB3/PDF), then **pushes it
+into Pramana's `consumer_library`**. Pramana **ingests** that package — it does
+not run the LLM.
+
+The package schema, signing, delivery mechanism, and the ingestion→approval→
+publish flow are defined authoritatively by **Mentible ADR-011**
+(`StudyBuddy_SelfLearner/docs/adr/ADR-011-pramana-compliance-integration.md`) —
+**Pramana consumes that contract**. In summary:
+
+- **Boundary = artifact handoff, not a runtime dependency** (consistent with
+  StudyBuddy ADR-002: no cross-product imports). The contract is the package.
+- **On arrival**, Pramana **verifies the package signature + `content_hash`**
+  (quarantine on failure) and creates a `RECEIVED`/`DRAFT` record in
+  `consumer_library` — *untrusted* until approved.
+- **Provenance travels in the package** (engine=mentible, model, provider,
+  prompt version, generated_at) and is stored on the draft + approved version for
+  audit and drift detection.
+- **`source_definitions` / per-section citations travel too**, so a reviewer
+  verifies content against the originating framework clause.
+
+So the `ContentDraft` workflow below is the **ingestion record** for an incoming
+Mentible package (the "generated_by" / provenance fields are populated from the
+package manifest), not an in-house generator. The approval gate (§2–§3) is
+unchanged — it sits at Pramana's ingestion boundary.
 
 ## 6. Data-model additions (extends Phase B)
 
