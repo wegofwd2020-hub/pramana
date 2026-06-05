@@ -176,7 +176,7 @@ publish → the story's delivery criteria operate on the published course.
 | _Platform (cross-cutting surfaces)_ | `PLATFORM` | [`platform/`](platform/README.md) | 🚧 In progress |
 | Foreign Corrupt Practices Act | `FCPA` | [`fcpa/`](fcpa/README.md) | 🚧 In progress |
 | Sarbanes-Oxley | `SOX` | [`sox/`](sox/README.md) | 🚧 In progress |
-| HIPAA | `HIPAA` | _planned_ | — |
+| HIPAA | `HIPAA` | [`hipaa/`](hipaa/README.md) | 🚧 In progress |
 | GDPR | `GDPR` | _planned_ | — |
 | ISO 27001 | `ISO27001` | _planned_ | — |
 | PCI DSS | `PCIDSS` | _planned_ | — |
