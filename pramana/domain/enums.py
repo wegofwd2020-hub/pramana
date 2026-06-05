@@ -98,8 +98,15 @@ class ContentDraftStatus(StrEnum):
     drafting aid only — no draft is assignable until a human ``APPROVED`` it
     and it is ``PUBLISHED`` into an immutable :class:`CourseVersion`. Terminal
     states are :attr:`PUBLISHED` and :attr:`REJECTED`.
+
+    :attr:`RECEIVED` is the entry state for content that arrived as a *Mentible
+    Consumable Package* (Mentible ADR-011 §7): an externally generated package
+    that passed signature + ``content_hash`` verification but is **untrusted**
+    until a human reviews it. It joins the same review path as a locally
+    authored :attr:`DRAFT`. Both are valid pre-review entry states.
     """
 
+    RECEIVED = "received"
     DRAFT = "draft"
     IN_REVIEW = "in_review"
     APPROVED = "approved"
@@ -116,6 +123,16 @@ class ContentDraftStatus(StrEnum):
         """True once a human has approved the content (APPROVED or PUBLISHED)."""
         return self in {ContentDraftStatus.APPROVED, ContentDraftStatus.PUBLISHED}
 
+    @property
+    def is_pre_review(self) -> bool:
+        """True for the entry states a draft can be submitted for review from.
+
+        Both a locally authored :attr:`DRAFT` and an ingested :attr:`RECEIVED`
+        package are submittable; everything else has already entered (or left)
+        the review workflow.
+        """
+        return self in {ContentDraftStatus.DRAFT, ContentDraftStatus.RECEIVED}
+
 
 _CONTENT_TERMINAL_STATES: frozenset[ContentDraftStatus] = frozenset(
     {ContentDraftStatus.PUBLISHED, ContentDraftStatus.REJECTED}
@@ -129,6 +146,7 @@ class ContentEvent(StrEnum):
     without re-deriving it from before/after states.
     """
 
+    RECEIVE = auto()
     SUBMIT_FOR_REVIEW = auto()
     REQUEST_CHANGES = auto()
     APPROVE = auto()

@@ -15,7 +15,10 @@ Hierarchy::
     │   └── SeparationOfDutiesError         # SOX role conflict
     ├── NotFoundError                       # entity does not exist
     ├── ConflictError                       # uniqueness / optimistic-lock conflict
+    │   └── DuplicatePackageError           # (package_id, version) already ingested
     ├── ValidationError                     # input validation failure
+    │   ├── PackageValidationError          # consumable-package manifest malformed
+    │   └── PackageIntegrityError           # signature / content_hash mismatch (quarantine)
     ├── AuthenticationError                 # missing/invalid credentials
     ├── AuthorizationError                  # authenticated but forbidden
     └── ExternalServiceError                # downstream system failure
@@ -125,6 +128,18 @@ class ConflictError(PramanaError):
     code = "conflict"
 
 
+class DuplicatePackageError(ConflictError):
+    """A consumable package with this ``(package_id, package_version)`` was
+    already ingested.
+
+    Delivery is idempotent on ``(package_id, package_version)`` (Mentible
+    ADR-011 §6), so a re-push of an already-received package is a no-op
+    conflict rather than a second draft.
+    """
+
+    code = "duplicate_package"
+
+
 class ValidationError(PramanaError):
     """Input failed validation.
 
@@ -133,6 +148,28 @@ class ValidationError(PramanaError):
     """
 
     code = "validation_error"
+
+
+class PackageValidationError(ValidationError):
+    """An incoming consumable-package manifest is structurally invalid.
+
+    Raised while parsing the Mentible ADR-011 manifest — a missing required
+    field, an empty ``modules`` list, an out-of-range pass threshold, etc.
+    The package never becomes a draft.
+    """
+
+    code = "package_validation_error"
+
+
+class PackageIntegrityError(ValidationError):
+    """A consumable package failed signature or ``content_hash`` verification.
+
+    Per Mentible ADR-011 §6, Pramana verifies the signature and content hash
+    on arrival; a failure **quarantines** the package — it is never silently
+    turned into a draft. Treat as tamper-evidence, not a transient error.
+    """
+
+    code = "package_integrity_error"
 
 
 class AuthenticationError(PramanaError):

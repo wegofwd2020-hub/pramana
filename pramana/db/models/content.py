@@ -8,6 +8,12 @@ Tables:
   immutable :class:`pramana.db.models.course.CourseVersion`; the draft records
   which version it produced.
 
+  A draft also serves as the **ingestion record** for an incoming *Mentible
+  Consumable Package* (Mentible ADR-011): an arrival enters at ``RECEIVED``,
+  carrying the package id/version, the manifest's content hash + signature, and
+  the provenance from the package — all retained as audit evidence. Ingestion
+  is idempotent on ``(tenant_id, package_id, package_version)``.
+
 The approval *rules* live in the pure
 :mod:`pramana.domain.content_approval` state machine; this table is the
 persistent representation the service layer reads/writes around it.
@@ -24,8 +30,10 @@ from sqlalchemy import (
     Enum as SQLEnum,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -77,6 +85,11 @@ class ContentDraft(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     source_citations: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     # ── Provenance (how the draft was produced) ────────────────────────────────
+    gen_engine: Mapped[str | None] = mapped_column(
+        String(60),
+        nullable=True,
+        comment="Generation engine, e.g. 'mentible' for an ingested package.",
+    )
     gen_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
     gen_provider: Mapped[str | None] = mapped_column(String(60), nullable=True)
     gen_prompt_version: Mapped[str | None] = mapped_column(String(60), nullable=True)
@@ -88,6 +101,29 @@ class ContentDraft(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
         ForeignKey("user_account.user_id", ondelete="SET NULL"),
         nullable=True,
         index=True,
+    )
+
+    # ── Ingestion (Mentible Consumable Package, ADR-011) ────────────────────────
+    # Present iff this draft was ingested from a package (status started RECEIVED).
+    package_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+        comment="Mentible package_id this draft was ingested from.",
+    )
+    package_version: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Mentible package_version; idempotency key with package_id.",
+    )
+    package_content_hash: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="content_hash asserted in the manifest and verified on ingest.",
+    )
+    signature: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Manifest signature recorded as tamper-evidence at the boundary.",
     )
 
     # ── Review / approval (the audit evidence) ─────────────────────────────────
@@ -128,6 +164,21 @@ class ContentDraft(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
             "OR generated_by_user_id IS NULL "
             "OR approved_by_user_id <> generated_by_user_id",
             name="separation_of_duties",
+        ),
+        # A package id/version is either both present (ingested) or both absent.
+        CheckConstraint(
+            "(package_id IS NULL) = (package_version IS NULL)",
+            name="package_ref_pair",
+        ),
+        # Ingestion idempotency: one draft per delivered (package_id, version).
+        # Partial unique index so non-ingested drafts (NULL package_id) don't collide.
+        Index(
+            "uq_content_draft_package",
+            "tenant_id",
+            "package_id",
+            "package_version",
+            unique=True,
+            postgresql_where=text("package_id IS NOT NULL"),
         ),
         Index("ix_content_draft_course_status", "course_id", "status"),
     )

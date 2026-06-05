@@ -119,6 +119,10 @@ class Settings(BaseSettings):
     smtp_password: SecretStr = SecretStr("")
     smtp_from_address: str = "noreply@pramana.example.com"
 
+    # Mentible handoff (ADR-011): shared secret used to verify the HMAC-SHA256
+    # signature on an incoming Consumable Package at the ingestion boundary.
+    mentible_package_hmac_secret: SecretStr = SecretStr("")
+
     # Compliance defaults
     default_pass_threshold_pct: Annotated[int, Field(ge=0, le=100)] = 80
     default_cooldown_days: Annotated[int, Field(ge=0, le=3650)] = 365

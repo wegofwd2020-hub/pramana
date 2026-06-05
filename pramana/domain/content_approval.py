@@ -4,9 +4,16 @@ Pure domain module: no database, no HTTP, no I/O. Encodes §3 of
 ``docs/03_ai_drafted_human_approved_content.md`` — the lifecycle that keeps
 AI-drafted training content a *drafting aid* rather than the source of truth:
 
-    DRAFT ──submit──▶ IN_REVIEW ──approve──▶ APPROVED ──publish──▶ PUBLISHED
-      ▲                   │  └────reject────▶ REJECTED (terminal)
-      └──request_changes──┘
+    RECEIVED ─┐
+              ├─submit─▶ IN_REVIEW ──approve──▶ APPROVED ──publish──▶ PUBLISHED
+    DRAFT ────┘             │  └────reject────▶ REJECTED (terminal)
+      ▲                     │
+      └───request_changes───┘
+
+``DRAFT`` is locally authored content; ``RECEIVED`` is an externally generated
+*Mentible Consumable Package* (Mentible ADR-011 §7) that passed signature +
+``content_hash`` verification on ingest. Both are *untrusted* pre-review entry
+states and flow through the same human-approval gate.
 
 No draft is assignable until a human has **approved** it and it is **published**
 into an immutable :class:`CourseVersion`. Two SOX-relevant rules live here:
@@ -108,16 +115,19 @@ class ContentDraftSnapshot:
 # Transitions
 # ---------------------------------------------------------------------------
 def submit_for_review(snapshot: ContentDraftSnapshot) -> ContentDraftSnapshot:
-    """Move a draft into review. Permitted only from ``DRAFT`` and only when a
-    content body has been attached.
+    """Move a draft into review. Permitted from either pre-review state
+    (``DRAFT`` for locally authored content, ``RECEIVED`` for an ingested
+    Mentible package) and only when a content body has been attached.
 
     Raises:
-        InvalidStateTransitionError: Not in ``DRAFT``, or no content attached.
+        InvalidStateTransitionError: Not in a pre-review state, or no content
+            attached.
     """
-    if snapshot.status is not ContentDraftStatus.DRAFT:
+    if not snapshot.status.is_pre_review:
         raise InvalidStateTransitionError(
             f"Cannot submit for review from status {snapshot.status.value!r}; "
-            f"expected {ContentDraftStatus.DRAFT.value!r}",
+            f"expected {ContentDraftStatus.DRAFT.value!r} or "
+            f"{ContentDraftStatus.RECEIVED.value!r}",
             context={"current_status": snapshot.status.value},
         )
     if not snapshot.has_content:
@@ -244,6 +254,23 @@ def initial_draft_snapshot(
         status=ContentDraftStatus.DRAFT,
         has_content=has_content,
         generated_by_user_id=generated_by_user_id,
+    )
+
+
+def received_package_snapshot() -> ContentDraftSnapshot:
+    """Construct a snapshot for a freshly ingested Mentible package.
+
+    The package arrived already carrying content and verified integrity
+    (Mentible ADR-011 §6), so it enters at ``RECEIVED`` with ``has_content``.
+    It has no ``generated_by_user_id`` — the generator is an external engine,
+    not a Pramana user, so the separation-of-duties check on approval reduces
+    to "any qualified human may approve" (there is no in-house generator to
+    collide with).
+    """
+    return ContentDraftSnapshot(
+        status=ContentDraftStatus.RECEIVED,
+        has_content=True,
+        generated_by_user_id=None,
     )
 
 
