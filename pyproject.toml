@@ -34,6 +34,7 @@ dependencies = [
     # Auth
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
+    "httpx>=0.27.0",  # OIDC JWKS discovery (runtime)
     # Background jobs
     "celery[redis]>=5.4.0",
     "redis>=5.1.0",
@@ -163,6 +164,10 @@ markers = [
 filterwarnings = [
     "error",
     "ignore::DeprecationWarning:passlib.*",
+    # starlette>=1.2 deprecates httpx in its TestClient (suggests httpx2); the
+    # warning fires on import of fastapi/starlette TestClient — third-party, not
+    # our code. Re-evaluate when migrating the test client to httpx2.
+    "ignore::starlette.exceptions.StarletteDeprecationWarning",
 ]
 
 # ----------------------------------------------------------------------------

@@ -29,7 +29,9 @@ _STATUS_BY_TYPE: tuple[tuple[type[PramanaError], int], ...] = (
     (ConflictError, status.HTTP_409_CONFLICT),
     # ValidationError covers PackageValidationError + PackageIntegrityError
     # (a quarantined package is a 422 — the bytes were rejected at the boundary).
-    (ValidationError, status.HTTP_422_UNPROCESSABLE_ENTITY),
+    # starlette renamed the 422 constant (…ENTITY → …CONTENT, RFC 9110); use the
+    # current name when present, fall back to the literal so we don't pin a name.
+    (ValidationError, getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422)),
     (DomainError, status.HTTP_409_CONFLICT),
     (ExternalServiceError, status.HTTP_502_BAD_GATEWAY),
 )
