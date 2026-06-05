@@ -36,6 +36,7 @@ EXPECTED_TABLES: set[str] = {
     "user_role",
     "course",
     "course_version",
+    "content_draft",
     "question",
     "answer_option",
     "assignment",

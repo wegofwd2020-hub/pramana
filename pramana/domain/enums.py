@@ -89,3 +89,48 @@ class TransitionEvent(StrEnum):
     SUBMIT_ATTEMPT = auto()
     CANCEL = auto()
     EXPIRE = auto()
+
+
+class ContentDraftStatus(StrEnum):
+    """Lifecycle state of an AI-drafted training-content draft.
+
+    See ``docs/03_ai_drafted_human_approved_content.md`` §3. Generation is a
+    drafting aid only — no draft is assignable until a human ``APPROVED`` it
+    and it is ``PUBLISHED`` into an immutable :class:`CourseVersion`. Terminal
+    states are :attr:`PUBLISHED` and :attr:`REJECTED`.
+    """
+
+    DRAFT = "draft"
+    IN_REVIEW = "in_review"
+    APPROVED = "approved"
+    PUBLISHED = "published"
+    REJECTED = "rejected"
+
+    @property
+    def is_terminal(self) -> bool:
+        """True if no transitions out of this state are permitted."""
+        return self in _CONTENT_TERMINAL_STATES
+
+    @property
+    def is_approved(self) -> bool:
+        """True once a human has approved the content (APPROVED or PUBLISHED)."""
+        return self in {ContentDraftStatus.APPROVED, ContentDraftStatus.PUBLISHED}
+
+
+_CONTENT_TERMINAL_STATES: frozenset[ContentDraftStatus] = frozenset(
+    {ContentDraftStatus.PUBLISHED, ContentDraftStatus.REJECTED}
+)
+
+
+class ContentEvent(StrEnum):
+    """Events that drive the content-approval state machine.
+
+    Named on each audit-log entry so the trail records *why* a draft moved,
+    without re-deriving it from before/after states.
+    """
+
+    SUBMIT_FOR_REVIEW = auto()
+    REQUEST_CHANGES = auto()
+    APPROVE = auto()
+    REJECT = auto()
+    PUBLISH = auto()

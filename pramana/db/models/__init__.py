@@ -14,6 +14,7 @@ from pramana.db.models.assignment import (
     Certificate,
 )
 from pramana.db.models.audit import AuditLog
+from pramana.db.models.content import ContentDraft
 from pramana.db.models.course import (
     AnswerOption,
     Course,
@@ -46,6 +47,8 @@ __all__ = [
     "Question",
     "AnswerOption",
     "QuestionType",
+    # Content authoring
+    "ContentDraft",
     # Assignment
     "Assignment",
     "Attempt",
