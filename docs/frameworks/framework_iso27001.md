@@ -20,6 +20,22 @@ Training requirements are imposed via:
 
 ISO/IEC 27002 provides implementation guidance for the Annex A controls.
 
+### Citable clauses & controls
+
+Stable anchors cited by ISO 27001 training content's `source_definitions`:
+
+#### Competence
+Clause 7.2 — determine and ensure necessary competence (via education, training, or experience).
+
+#### Awareness
+Clause 7.3 — personnel are aware of the information security policy and their contribution to the ISMS.
+
+#### Awareness training control
+Annex A.6.3 — information security awareness, education and training program (all personnel).
+
+#### Disciplinary process
+Annex A.6.4 — disciplinary process for policy violations; relies on evidence the person *was* trained.
+
 ---
 
 ## 2. Why It Matters for Compliance Training Systems
