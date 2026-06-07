@@ -186,3 +186,29 @@ def test_publish_returns_course_version() -> None:
     body = resp.json()
     assert body["version_number"] == 1
     assert body["is_active"] is True
+
+
+def test_regenerate_returns_202_content_request() -> None:
+    from pramana.api.dependencies import get_content_request_service
+    from pramana.db.models.content_request import ContentRequest
+
+    cr = ContentRequest(
+        id=uuid.uuid4(), tenant_id=uuid.uuid4(), framework="fcpa", title="t",
+        status="requested", requested_by=uuid.uuid4(), spec={},
+    )
+    cr.course_id = cr.package_id = cr.draft_id = None
+
+    class FakeRequests:
+        async def regenerate(self, draft_id, *, parameter_overrides):
+            return cr
+
+    app = create_app()
+    app.dependency_overrides[get_content_request_service] = lambda: FakeRequests()
+    with TestClient(app) as c:
+        resp = c.post(
+            f"/content-drafts/{uuid.uuid4()}/regenerate",
+            json={"parameter_overrides": {"title": "New"}},
+        )
+    app.dependency_overrides.clear()
+    assert resp.status_code == 202
+    assert resp.json()["request_id"] == str(cr.id)

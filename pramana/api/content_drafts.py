@@ -6,9 +6,9 @@ separation-of-duties errors are raised as :class:`~pramana.exceptions.PramanaErr
 subclasses and mapped to status codes by :mod:`pramana.api.errors` (invalid
 transition / SoD → 409, not found → 404, validation → 422).
 
-``regenerate`` is intentionally not implemented here: it re-issues a Package
-Request to Mentible (US-PLATFORM-0005), which depends on the content-requests
-surface (US-PLATFORM-0003) that is not built yet.
+``regenerate`` re-issues the draft's Package Request to Mentible (US-PLATFORM-0005)
+via the content-requests surface (US-PLATFORM-0003); the returned package arrives
+as a new ``package_version`` that supersedes this draft.
 """
 
 from __future__ import annotations
@@ -18,15 +18,22 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from pramana.api.dependencies import ContentReviewService, get_content_review_service
+from pramana.api.dependencies import (
+    ContentRequestService,
+    ContentReviewService,
+    get_content_request_service,
+    get_content_review_service,
+)
 from pramana.api.schemas import (
     ApproveRequest,
     ContentDraftDetail,
     ContentDraftOut,
     ContentDraftPage,
+    ContentRequestOut,
     CourseVersionOut,
     Pagination,
     PublishRequest,
+    RegenerateRequest,
     ReviewNotesRequest,
 )
 from pramana.services.content_review import parse_status
@@ -34,6 +41,7 @@ from pramana.services.content_review import parse_status
 router = APIRouter(prefix="/content-drafts", tags=["ContentDrafts"])
 
 Service = Annotated[ContentReviewService, Depends(get_content_review_service)]
+RequestService = Annotated[ContentRequestService, Depends(get_content_request_service)]
 
 
 @router.get("", response_model=ContentDraftPage, summary="List content drafts (review queue)")
@@ -122,3 +130,19 @@ async def publish(
     body = body or PublishRequest()
     cv = await service.publish(draft_id, is_material_change=body.is_material_change)
     return CourseVersionOut.of(cv)
+
+
+@router.post(
+    "/{draft_id}/regenerate",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=ContentRequestOut,
+    summary="Regenerate a draft with updated parameters",
+)
+async def regenerate(
+    draft_id: uuid.UUID,
+    requests: RequestService,
+    body: RegenerateRequest | None = None,
+) -> ContentRequestOut:
+    body = body or RegenerateRequest()
+    cr = await requests.regenerate(draft_id, parameter_overrides=body.parameter_overrides)
+    return ContentRequestOut.of(cr)

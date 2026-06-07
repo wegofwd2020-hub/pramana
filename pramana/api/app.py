@@ -9,7 +9,12 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from pramana.api import consumer_library, content_drafts
+from pramana.api import (
+    consumer_library,
+    content_drafts,
+    content_requests,
+    frameworks,
+)
 from pramana.api.errors import register_exception_handlers
 
 
@@ -24,6 +29,8 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
     app.include_router(consumer_library.router)
     app.include_router(content_drafts.router)
+    app.include_router(content_requests.router)
+    app.include_router(frameworks.router)
 
     @app.get("/health", tags=["meta"], summary="Liveness probe")
     async def health() -> dict[str, str]:

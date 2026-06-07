@@ -156,6 +156,32 @@ class QuestionType(StrEnum):
         return [t.value for t in cls]
 
 
+class ContentRequestStatus(StrEnum):
+    """Lifecycle state of a commissioned content (Package) Request.
+
+    The **Create** side of the pipeline (US-PLATFORM-0003): an author commissions
+    content, Pramana pushes a Package Request to Mentible, and the request tracks
+    the work until the manufactured package lands in the review queue and is
+    published. ``FAILED`` is terminal (push rejected / generation abandoned).
+
+    Mirrors the ingested draft's progress: once a package arrives the request is
+    ``RECEIVED`` and its ``draft_id`` points at the resulting
+    :class:`~pramana.db.models.content.ContentDraft`.
+    """
+
+    REQUESTED = "requested"
+    GENERATING = "generating"
+    RECEIVED = "received"
+    IN_REVIEW = "in_review"
+    PUBLISHED = "published"
+    FAILED = "failed"
+
+    @property
+    def is_terminal(self) -> bool:
+        """True if no transitions out of this state are permitted."""
+        return self in {ContentRequestStatus.PUBLISHED, ContentRequestStatus.FAILED}
+
+
 class ContentEvent(StrEnum):
     """Events that drive the content-approval state machine.
 
@@ -169,3 +195,12 @@ class ContentEvent(StrEnum):
     APPROVE = auto()
     REJECT = auto()
     PUBLISH = auto()
+
+
+class ContentRequestEvent(StrEnum):
+    """Events on the content-request lifecycle, named on each audit entry."""
+
+    COMMISSION = auto()
+    PUSH = auto()
+    REGENERATE = auto()
+    FAIL = auto()

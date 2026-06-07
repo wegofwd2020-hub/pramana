@@ -10,7 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     from pramana.db.models.content import ContentDraft
+    from pramana.db.models.content_request import ContentRequest
     from pramana.db.models.course import CourseVersion
+    from pramana.services.definitions_library import ClauseInfo, FrameworkInfo
 
 
 class IngestPackageRequest(BaseModel):
@@ -150,6 +152,105 @@ class ReviewNotesRequest(BaseModel):
 class PublishRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     is_material_change: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Frameworks (the "law" picker — definitions-library feed)
+# ---------------------------------------------------------------------------
+class FrameworkOut(BaseModel):
+    """A framework in the definitions library."""
+
+    code: str
+    name: str
+    doc: str
+
+    @classmethod
+    def of(cls, fw: FrameworkInfo) -> FrameworkOut:
+        return cls(code=fw.code, name=fw.name, doc=fw.doc)
+
+
+class FrameworkClauseOut(BaseModel):
+    """A citable clause anchor within a framework doc."""
+
+    clause: str
+    title: str
+    ref: str
+
+    @classmethod
+    def of(cls, c: ClauseInfo) -> FrameworkClauseOut:
+        return cls(clause=c.clause, title=c.title, ref=c.ref)
+
+
+# ---------------------------------------------------------------------------
+# Content requests (Create phase — commission content → Mentible)
+# ---------------------------------------------------------------------------
+class ContentRequestCreate(BaseModel):
+    """Body of a commissioning request (the Package Request spec, US-PLATFORM-0003).
+
+    Top-level fields are typed; the nested ``scope``/``assessment``/``constraints``/
+    ``source_definitions`` are validated authoritatively by the pure
+    :mod:`pramana.domain.package_request`, so they are accepted as raw structures
+    here to keep a single source of validation truth.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    framework: str
+    title: str
+    course_id: uuid.UUID | None = None
+    scope: dict[str, Any] | None = None
+    source_definitions: list[dict[str, Any]] = Field(min_length=1)
+    learning_objectives: list[str] | None = None
+    assessment: dict[str, Any]
+    constraints: dict[str, Any] | None = None
+    deliverables: list[str] | None = None
+    visuals: list[str] | None = None
+    satisfies_stories: list[str] | None = None
+
+
+class RegenerateRequest(BaseModel):
+    """Body of a draft regeneration (US-PLATFORM-0005)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    notes: str | None = None
+    parameter_overrides: dict[str, Any] | None = Field(
+        default=None,
+        description="Partial Package Request fields to change; unspecified reuse the original.",
+    )
+
+
+class ContentRequestOut(BaseModel):
+    """A content request and its lifecycle status."""
+
+    request_id: uuid.UUID
+    framework: str
+    title: str
+    status: str
+    requested_by: uuid.UUID
+    course_id: uuid.UUID | None
+    package_id: uuid.UUID | None
+    draft_id: uuid.UUID | None
+    created_at: datetime | None
+
+    @classmethod
+    def of(cls, cr: ContentRequest) -> ContentRequestOut:
+        return cls(
+            request_id=cr.id,
+            framework=cr.framework,
+            title=cr.title,
+            status=cr.status,
+            requested_by=cr.requested_by,
+            course_id=cr.course_id,
+            package_id=cr.package_id,
+            draft_id=cr.draft_id,
+            created_at=getattr(cr, "created_at", None),
+        )
+
+
+class ContentRequestPage(BaseModel):
+    items: list[ContentRequestOut]
+    pagination: Pagination
 
 
 class CourseVersionOut(BaseModel):
