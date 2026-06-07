@@ -22,10 +22,11 @@ from sqlalchemy import ColumnElement, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pramana.db.models.content import ContentDraft
-from pramana.db.models.course import CourseVersion
+from pramana.db.models.course import AnswerOption, Course, CourseVersion, Question
 from pramana.domain import content_approval as ca
 from pramana.domain.consumable_package import canonical_json, compute_content_hash
 from pramana.domain.enums import ContentDraftStatus, ContentEvent
+from pramana.domain.publication import QuestionSpec, materialize_quiz
 from pramana.exceptions import InvalidStateTransitionError, NotFoundError
 from pramana.services.audit import append_audit
 
@@ -44,6 +45,33 @@ def _snapshot(draft: ContentDraft) -> ca.ContentDraftSnapshot:
         content_hash=draft.content_hash,
         published_course_version_id=draft.published_course_version_id,
     )
+
+
+def _add_question(
+    session: AsyncSession, course_version_id: uuid.UUID, spec: QuestionSpec
+) -> None:
+    """Persist a :class:`QuestionSpec` and its options under a course version."""
+    question_id = uuid.uuid4()
+    session.add(
+        Question(
+            id=question_id,
+            course_version_id=course_version_id,
+            question_text=spec.question_text,
+            question_type=spec.question_type.value,
+            weight=spec.weight,
+            display_order=spec.display_order,
+        )
+    )
+    for opt in spec.options:
+        session.add(
+            AnswerOption(
+                id=uuid.uuid4(),
+                question_id=question_id,
+                option_text=opt.option_text,
+                is_correct=opt.is_correct,
+                display_order=opt.display_order,
+            )
+        )
 
 
 async def _load(session: AsyncSession, draft_id: uuid.UUID) -> ContentDraft:
@@ -257,17 +285,22 @@ async def publish_draft(
 ) -> CourseVersion:
     """``APPROVED`` → ``PUBLISHED``: materialise an immutable course version.
 
-    Creates the next :class:`CourseVersion` for the draft's course, makes it the
-    active version (deactivating the previous one), and links the draft to it.
+    Creates the next :class:`CourseVersion` for the draft's course, destructures
+    the draft's quiz into the version's ``Question`` / ``AnswerOption`` rows
+    (ADR-011 §9.2) so the published content is assignable and gradeable, makes it
+    the active version (deactivating the previous one), and links the draft to
+    it. The quiz's own ``pass_threshold_pct`` is propagated onto the course.
 
-    Note: destructuring ``modules``/``quiz`` into ``Question``/``AnswerOption``
-    rows is a later phase (ADR-011 §9.2); this creates the version shell and the
-    lineage so the draft becomes publishable/assignable.
+    Raises:
+        ValidationError: The draft's quiz body is malformed — no question is
+            materialised and nothing is written.
     """
     draft = await _load(session, draft_id)
     course_version_id = uuid.uuid4()
     # Validates APPROVED *before* any DB write (raises otherwise).
     new = ca.publish(_snapshot(draft), course_version_id=course_version_id)
+    # Validate + project the quiz before any mutation, same as the state check.
+    quiz = materialize_quiz(draft.body)
 
     next_version = (
         (
@@ -296,6 +329,17 @@ async def publish_draft(
         is_material_change=is_material_change,
     )
     session.add(course_version)
+    for spec in quiz.questions:
+        _add_question(session, course_version_id, spec)
+
+    # Propagate the quiz's declared threshold onto the (mutable) course metadata
+    # so the published quiz governs its own grading.
+    if quiz.pass_threshold_pct is not None:
+        await session.execute(
+            update(Course)
+            .where(Course.id == draft.course_id)
+            .values(pass_threshold_pct=quiz.pass_threshold_pct)
+        )
 
     draft.status = new.status.value
     draft.published_course_version_id = course_version_id

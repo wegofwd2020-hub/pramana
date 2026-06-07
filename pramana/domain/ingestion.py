@@ -82,10 +82,11 @@ def package_to_draft_fields(
     """Project a verified package onto draft fields for the given course.
 
     The training content (``modules`` + ``quiz``) and the delivery references
-    (``assets`` + ``artifacts``) are stored verbatim on ``body`` — they are
-    destructured into ``Question`` / ``AnswerOption`` only at publish time.
-    ``source_definitions`` become the draft's ``source_citations`` so a reviewer
-    can trace each claim to its originating clause.
+    (``assets`` + ``artifacts``) are stored verbatim on ``body``; the quiz is
+    destructured into ``Question`` / ``AnswerOption`` at publish time by
+    :func:`pramana.domain.publication.materialize_quiz`. ``source_definitions``
+    become the draft's ``source_citations`` so a reviewer can trace each claim to
+    its originating clause.
     """
     body: dict[str, Any] = {
         "modules": [dict(m) for m in package.modules],

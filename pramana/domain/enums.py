@@ -139,6 +139,23 @@ _CONTENT_TERMINAL_STATES: frozenset[ContentDraftStatus] = frozenset(
 )
 
 
+class QuestionType(StrEnum):
+    """Allowed kinds of quiz question.
+
+    Pure value object shared by the persistence layer (the ``question_type``
+    column) and the publish-time materialization that destructures a draft's
+    quiz into :class:`~pramana.db.models.course.Question` rows.
+    """
+
+    SINGLE_SELECT = "single_select"
+    TRUE_FALSE = "true_false"
+
+    @classmethod
+    def values(cls) -> list[str]:
+        """The string values, for building the SQL enum."""
+        return [t.value for t in cls]
+
+
 class ContentEvent(StrEnum):
     """Events that drive the content-approval state machine.
 

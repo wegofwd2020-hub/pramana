@@ -37,21 +37,16 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from pramana.db.base import Base
 from pramana.db.mixins import SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin
+from pramana.domain.enums import QuestionType
 
 if TYPE_CHECKING:
     from pramana.db.models.assignment import Assignment, AttemptAnswer
     from pramana.db.models.identity import User
 
-
-class QuestionType:
-    """Allowed values for ``Question.question_type``."""
-
-    SINGLE_SELECT = "single_select"
-    TRUE_FALSE = "true_false"
-
-    @classmethod
-    def values(cls) -> list[str]:
-        return [cls.SINGLE_SELECT, cls.TRUE_FALSE]
+# Re-exported for backwards compatibility: ``QuestionType`` historically lived
+# here. It is now the canonical domain enum (:mod:`pramana.domain.enums`) so the
+# publish-time materialization can share it without importing the ORM layer.
+__all__ = ["AnswerOption", "Course", "CourseVersion", "Question", "QuestionType"]
 
 
 # ---------------------------------------------------------------------------

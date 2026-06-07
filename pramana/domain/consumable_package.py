@@ -76,9 +76,10 @@ class ConsumablePackage:
     Only the fields Pramana needs to *ingest and trace* are promoted to typed
     attributes. The training content itself (``modules`` / ``quiz``) is kept as
     the raw mapping it arrived as: it is stored verbatim on the draft body and
-    only destructured into :class:`~pramana.db.models.course.Question` /
-    ``AnswerOption`` at publish time (a later phase). Keeping it verbatim also
-    means the content hash we verify is over *exactly* the bytes that arrived.
+    destructured into :class:`~pramana.db.models.course.Question` /
+    ``AnswerOption`` at publish time (:func:`pramana.domain.publication.
+    materialize_quiz`). Keeping it verbatim also means the content hash we verify
+    is over *exactly* the bytes that arrived.
 
     Attributes:
         package_id: Stable id for this consumable.

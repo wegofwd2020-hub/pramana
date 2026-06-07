@@ -9,11 +9,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from pramana.db.models.content import ContentDraft
+from pramana.db.models.course import AnswerOption, Question
 from pramana.domain.enums import ContentDraftStatus
 from pramana.exceptions import (
     InvalidStateTransitionError,
     NotFoundError,
     SeparationOfDutiesError,
+    ValidationError,
 )
 from pramana.services import content_review as cr
 
@@ -28,7 +30,18 @@ def make_draft(status: str = "received", **kw) -> ContentDraft:
         course_id=kw.get("course_id", uuid.uuid4()),
         status=status,
         title="FCPA Anti-Bribery",
-        body=kw.get("body", {"modules": [{"heading": "x"}], "quiz": {"questions": [1]}}),
+        body=kw.get(
+            "body",
+            {
+                "modules": [{"heading": "x"}],
+                "quiz": {
+                    "pass_threshold_pct": 80,
+                    "questions": [
+                        {"prompt": "Q1?", "options": ["a", "b", "c"], "answer_index": 0}
+                    ],
+                },
+            },
+        ),
         source_citations=kw.get(
             "source_citations", [{"framework": "fcpa", "clause": "anti-bribery"}]
         ),
@@ -179,8 +192,10 @@ class TestPublish:
             approved_at=NOW,
             content_hash="sha256:" + "a" * 64,
         )
-        # execute calls: max-version, deactivate update, audit prev-hash
-        session = fake_session(get=draft, execute=[_result(scalar=2), _result(), _result()])
+        # execute calls: max-version, deactivate update, course-threshold, audit prev-hash
+        session = fake_session(
+            get=draft, execute=[_result(scalar=2), _result(), _result(), _result()]
+        )
         cv = await cr.publish_draft(
             session,
             draft_id=draft.id,
@@ -193,6 +208,53 @@ class TestPublish:
         assert cv.course_id == draft.course_id
         assert draft.status == "published"
         assert draft.published_course_version_id == cv.id
+
+    async def test_publish_materialises_questions_and_options(self) -> None:
+        draft = make_draft(
+            status="approved",
+            approved_by_user_id=uuid.uuid4(),
+            approved_at=NOW,
+            content_hash="sha256:" + "a" * 64,
+        )
+        session = fake_session(
+            get=draft, execute=[_result(scalar=0), _result(), _result(), _result()]
+        )
+        cv = await cr.publish_draft(
+            session,
+            draft_id=draft.id,
+            tenant_id=TENANT,
+            publisher_user_id=uuid.uuid4(),
+            now=NOW,
+        )
+        added = [c.args[0] for c in session.add.call_args_list]
+        questions = [a for a in added if isinstance(a, Question)]
+        options = [a for a in added if isinstance(a, AnswerOption)]
+        assert len(questions) == 1
+        assert questions[0].course_version_id == cv.id
+        assert questions[0].question_text == "Q1?"
+        assert len(options) == 3
+        assert [o.is_correct for o in options] == [True, False, False]
+        assert all(o.question_id == questions[0].id for o in options)
+
+    async def test_publish_rejects_malformed_quiz_before_db_write(self) -> None:
+        draft = make_draft(
+            status="approved",
+            approved_by_user_id=uuid.uuid4(),
+            approved_at=NOW,
+            content_hash="sha256:" + "a" * 64,
+            body={"quiz": {"questions": []}},
+        )
+        session = fake_session(get=draft)
+        with pytest.raises(ValidationError):
+            await cr.publish_draft(
+                session,
+                draft_id=draft.id,
+                tenant_id=TENANT,
+                publisher_user_id=uuid.uuid4(),
+                now=NOW,
+            )
+        session.add.assert_not_called()
+        session.execute.assert_not_called()
 
     async def test_publish_from_non_approved_raises_before_db_write(self) -> None:
         draft = make_draft(status="in_review")
