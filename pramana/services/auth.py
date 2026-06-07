@@ -207,6 +207,7 @@ async def _provision_by_email(
             "no user is bound to this identity and the token carries no email to match it",
             context={"sub": sub},
         )
+    email = email.strip()  # IdP claims may carry surrounding whitespace
     # The IdP signed the token, but only trust the email for *matching* if it
     # didn't explicitly mark it unverified.
     if claims.get("email_verified") is False:

@@ -136,7 +136,12 @@ def _fragment(ref: str) -> str:
     return frag.strip().lower()
 
 
-def _headings(path: Path) -> list[tuple[int, str]]:
+@lru_cache(maxsize=64)
+def _headings(path: Path) -> tuple[tuple[int, str], ...]:
+    """Parse a framework doc's headings once and memoise (the library is
+    read-only at runtime). Cached here at the I/O boundary so ``list_clauses``,
+    ``list_frameworks``, and ``_anchors`` all reuse a single file read per doc.
+    Returns a tuple so the cached value can't be mutated by a caller."""
     out: list[tuple[int, str]] = []
     in_code = False
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -148,10 +153,9 @@ def _headings(path: Path) -> list[tuple[int, str]]:
         m = _HEADING_RE.match(line)
         if m:
             out.append((len(m.group(1)), m.group(2)))
-    return out
+    return tuple(out)
 
 
-@lru_cache(maxsize=64)
 def _anchors(path: Path) -> frozenset[str]:
     return frozenset(slugify(title) for _, title in _headings(path))
 
