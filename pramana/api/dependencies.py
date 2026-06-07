@@ -177,7 +177,7 @@ async def get_principal(
     """
     token = _bearer_token(request)
     claims = await verifier.verify(token)
-    return await resolve_principal(session, claims)
+    return await resolve_principal(session, claims, now=utcnow())
 
 
 # ---------------------------------------------------------------------------

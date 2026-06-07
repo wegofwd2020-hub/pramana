@@ -20,6 +20,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol
 
 import structlog
@@ -34,8 +35,13 @@ from pramana.exceptions import (
     AuthorizationError,
     ExternalServiceError,
 )
+from pramana.services.audit import append_audit
 
 logger = structlog.get_logger(__name__)
+
+# Audit event recorded when a first login binds an SSO identity to a user — an
+# access-control event for the SOX trail (who gained authenticated access, when).
+FIRST_LOGIN_EVENT = "user.sso_bound"
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,11 +165,14 @@ class JwksKeySource:
 # ---------------------------------------------------------------------------
 # Principal resolution
 # ---------------------------------------------------------------------------
-async def resolve_principal(session: AsyncSession, claims: Mapping[str, Any]) -> Principal:
+async def resolve_principal(
+    session: AsyncSession, claims: Mapping[str, Any], *, now: datetime
+) -> Principal:
     """Map verified token claims to a :class:`Principal`.
 
     Resolves the existing ``sub`` → user binding; on a first login with no binding
-    yet, provisions one via :func:`_provision_by_email`.
+    yet, provisions one via :func:`_provision_by_email` (which audits the bind).
+    ``now`` stamps that audit entry.
 
     Raises:
         AuthenticationError: The token has no ``sub`` claim.
@@ -174,12 +183,12 @@ async def resolve_principal(session: AsyncSession, claims: Mapping[str, Any]) ->
         raise AuthenticationError("token is missing the 'sub' claim")
     user = (await session.execute(select(User).where(User.sso_subject == sub))).scalar_one_or_none()
     if user is None:
-        user = await _provision_by_email(session, claims, sub=str(sub))
+        user = await _provision_by_email(session, claims, sub=str(sub), now=now)
     return Principal(user_id=user.user_id, tenant_id=user.tenant_id)
 
 
 async def _provision_by_email(
-    session: AsyncSession, claims: Mapping[str, Any], *, sub: str
+    session: AsyncSession, claims: Mapping[str, Any], *, sub: str, now: datetime
 ) -> User:
     """First login: bind ``sub`` to a pre-provisioned user matched on email.
 
@@ -229,7 +238,17 @@ async def _provision_by_email(
         )
 
     user.sso_subject = sub
-    await session.flush()
+    await session.flush()  # assign nothing new, but settle the bind before auditing
+    await append_audit(
+        session,
+        tenant_id=user.tenant_id,
+        actor_user_id=user.user_id,
+        entity_type="user",
+        entity_id=str(user.user_id),
+        event_type=FIRST_LOGIN_EVENT,
+        payload={"sub": sub},
+        occurred_at=now,
+    )
     logger.info(
         "auth.first_login_provisioned",
         user_id=str(user.user_id),
