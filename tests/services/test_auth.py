@@ -108,6 +108,82 @@ class TestResolvePrincipal:
             await resolve_principal(self._session(None), {"sub": "unknown"})
 
 
+class TestFirstLoginProvisioning:
+    def _session(self, *, bound=None, email_matches=()) -> AsyncMock:
+        bound_result = MagicMock()
+        bound_result.scalar_one_or_none.return_value = bound
+        email_result = MagicMock()
+        email_result.scalars.return_value.all.return_value = list(email_matches)
+        s = AsyncMock()
+        s.execute = AsyncMock(side_effect=[bound_result, email_result])
+        s.flush = AsyncMock()
+        return s
+
+    async def test_binds_sub_to_matched_user(self) -> None:
+        user = MagicMock(
+            user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), sso_subject=None, status="active"
+        )
+        session = self._session(email_matches=[user])
+        principal = await resolve_principal(session, {"sub": "new-sub", "email": "a@x.com"})
+        assert principal.user_id == user.user_id
+        assert principal.tenant_id == user.tenant_id
+        assert user.sso_subject == "new-sub"  # binding persisted on the row
+        session.flush.assert_awaited_once()
+
+    async def test_mixed_case_email_still_provisions(self) -> None:
+        user = MagicMock(
+            user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), sso_subject=None, status="active"
+        )
+        session = self._session(email_matches=[user])
+        await resolve_principal(session, {"sub": "s", "email": "MixedCase@X.com"})
+        assert user.sso_subject == "s"
+
+    async def test_no_email_claim_rejected(self) -> None:
+        with pytest.raises(AuthorizationError, match="email"):
+            await resolve_principal(self._session(), {"sub": "s"})
+
+    async def test_unverified_email_rejected(self) -> None:
+        with pytest.raises(AuthorizationError, match="unverified"):
+            await resolve_principal(
+                self._session(),
+                {"sub": "s", "email": "a@x.com", "email_verified": False},
+            )
+
+    async def test_no_email_match_rejected(self) -> None:
+        with pytest.raises(AuthorizationError):
+            await resolve_principal(
+                self._session(email_matches=[]), {"sub": "s", "email": "ghost@x.com"}
+            )
+
+    async def test_ambiguous_email_match_rejected(self) -> None:
+        session = self._session(email_matches=[MagicMock(), MagicMock()])
+        with pytest.raises(AuthorizationError):
+            await resolve_principal(session, {"sub": "s", "email": "dup@x.com"})
+
+    async def test_already_bound_to_other_sub_rejected(self) -> None:
+        user = MagicMock(sso_subject="some-other-sub", status="active")
+        session = self._session(email_matches=[user])
+        with pytest.raises(AuthorizationError, match="already bound"):
+            await resolve_principal(session, {"sub": "s", "email": "a@x.com"})
+
+    async def test_non_active_user_not_provisioned(self) -> None:
+        user = MagicMock(sso_subject=None, status="pseudonymized")
+        session = self._session(email_matches=[user])
+        with pytest.raises(AuthorizationError, match="non-active"):
+            await resolve_principal(session, {"sub": "s", "email": "a@x.com"})
+
+    async def test_existing_binding_skips_provisioning(self) -> None:
+        user = MagicMock(user_id=uuid.uuid4(), tenant_id=uuid.uuid4())
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = user
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=result)
+        session.flush = AsyncMock()
+        principal = await resolve_principal(session, {"sub": "bound", "email": "a@x.com"})
+        assert principal.user_id == user.user_id
+        session.flush.assert_not_awaited()  # no write on the fast path
+
+
 class TestJwksKeySource:
     def _http(self, jwks):
         async def http_get_json(url):

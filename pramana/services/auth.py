@@ -6,10 +6,12 @@ against the issuer's JWKS; the ``sub`` claim is mapped to a provisioned ``User``
 via :attr:`pramana.db.models.identity.User.sso_subject`.
 
 The verification is isolated behind :class:`TokenVerifier` + :class:`KeySource`
-so it is testable without a live IdP (tests inject a static key source); the
-principal resolution is a plain query. First-login provisioning (binding a new
-``sub`` to a user by email) is a deliberate follow-up — this resolves an existing
-binding only.
+so it is testable without a live IdP (tests inject a static key source).
+Principal resolution first looks up the binding (``sub`` → ``User.sso_subject``);
+on a first login with no binding yet it **provisions** by binding the ``sub`` to a
+pre-provisioned user matched on the token's verified email. Binding only — a
+token never *creates* a user; the account must already exist (e.g. from an HR
+import), so an arbitrary valid token cannot mint access.
 """
 
 from __future__ import annotations
@@ -20,17 +22,20 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+import structlog
 from jose import jwt
 from jose.exceptions import ExpiredSignatureError, JWTClaimsError, JWTError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pramana.db.models.identity import User
+from pramana.db.models.identity import User, UserStatus
 from pramana.exceptions import (
     AuthenticationError,
     AuthorizationError,
     ExternalServiceError,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,17 +162,77 @@ class JwksKeySource:
 async def resolve_principal(session: AsyncSession, claims: Mapping[str, Any]) -> Principal:
     """Map verified token claims to a :class:`Principal`.
 
+    Resolves the existing ``sub`` → user binding; on a first login with no binding
+    yet, provisions one via :func:`_provision_by_email`.
+
     Raises:
         AuthenticationError: The token has no ``sub`` claim.
-        AuthorizationError: No Pramana user is bound to this ``sub``.
+        AuthorizationError: No binding exists and none could be provisioned.
     """
     sub = claims.get("sub")
     if not sub:
         raise AuthenticationError("token is missing the 'sub' claim")
     user = (await session.execute(select(User).where(User.sso_subject == sub))).scalar_one_or_none()
     if user is None:
-        raise AuthorizationError(
-            "no Pramana user is bound to this identity",
-            context={"sub": str(sub)},
-        )
+        user = await _provision_by_email(session, claims, sub=str(sub))
     return Principal(user_id=user.user_id, tenant_id=user.tenant_id)
+
+
+async def _provision_by_email(
+    session: AsyncSession, claims: Mapping[str, Any], *, sub: str
+) -> User:
+    """First login: bind ``sub`` to a pre-provisioned user matched on email.
+
+    The user record must already exist with this email and no SSO binding yet;
+    we attach the ``sub`` so subsequent logins take the fast binding path. This
+    never creates a user — a valid token for an unknown email is rejected.
+
+    Raises:
+        AuthorizationError: No email claim, an unverified email, no unique email
+            match, the matched user is already bound to a different identity, or
+            it is not active.
+    """
+    email = claims.get("email")
+    if not isinstance(email, str) or not email.strip():
+        raise AuthorizationError(
+            "no user is bound to this identity and the token carries no email to match it",
+            context={"sub": sub},
+        )
+    # The IdP signed the token, but only trust the email for *matching* if it
+    # didn't explicitly mark it unverified.
+    if claims.get("email_verified") is False:
+        raise AuthorizationError(
+            "cannot provision from an unverified email", context={"sub": sub}
+        )
+
+    matches = (
+        (await session.execute(select(User).where(func.lower(User.email) == email.lower())))
+        .scalars()
+        .all()
+    )
+    if len(matches) != 1:
+        # Zero → not pre-provisioned; more than one → ambiguous across tenants.
+        raise AuthorizationError(
+            "no unique Pramana user matches this identity",
+            context={"sub": sub, "email_matches": len(matches)},
+        )
+    user = matches[0]
+    if user.sso_subject is not None:
+        raise AuthorizationError(
+            "this user is already bound to a different SSO identity",
+            context={"sub": sub},
+        )
+    if user.status != UserStatus.ACTIVE:
+        raise AuthorizationError(
+            "cannot provision a non-active user",
+            context={"sub": sub, "status": user.status},
+        )
+
+    user.sso_subject = sub
+    await session.flush()
+    logger.info(
+        "auth.first_login_provisioned",
+        user_id=str(user.user_id),
+        tenant_id=str(user.tenant_id),
+    )
+    return user
