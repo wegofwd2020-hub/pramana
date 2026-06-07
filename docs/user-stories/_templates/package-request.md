@@ -70,6 +70,7 @@ determine Mentible's output. Mentible owns the rest (`provenance`, `content_hash
 
 | Package Request (input) | → Manifest (Mentible output, ADR-011 §4) |
 |---|---|
+| `request_id` | `request_id` (echoed back **unchanged** so Pramana correlates the arrival with its commission and closes the request loop) |
 | `framework`, `title` | `frameworks`, `title` |
 | `source_definitions` | `source_definitions` + per-`module.citations` |
 | `learning_objectives` + `constraints` | `modules[]` (deck/lessons) |

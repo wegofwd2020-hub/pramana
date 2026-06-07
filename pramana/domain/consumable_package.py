@@ -85,6 +85,11 @@ class ConsumablePackage:
         package_id: Stable id for this consumable.
         package_version: Bumped by Mentible on re-generation. Delivery is
             idempotent on ``(package_id, package_version)``.
+        request_id: The originating Package Request's id, echoed back by Mentible
+            so Pramana can correlate the arrival with the commission that asked
+            for it (ADR-011 §4 ``request_id``). Optional: a package may arrive
+            without one (e.g. hand-delivered), in which case the request loop is
+            simply not closed for it.
         title: Human-readable package title.
         frameworks: Which standards this package covers (e.g. ``["sox"]``).
         source_definitions: Clause-level traceability to the definitions library.
@@ -105,6 +110,7 @@ class ConsumablePackage:
 
     package_id: uuid.UUID
     package_version: int
+    request_id: uuid.UUID | None
     title: str
     frameworks: tuple[str, ...]
     source_definitions: tuple[SourceDefinition, ...]
@@ -159,6 +165,7 @@ def parse_manifest(manifest: Mapping[str, Any]) -> ConsumablePackage:
 
     package_id = _require_uuid(manifest, "package_id")
     package_version = _require_int(manifest, "package_version", minimum=1)
+    request_id = _optional_uuid(manifest, "request_id")
     title = _require_str(manifest, "title")
     frameworks = tuple(_require_str_list(manifest, "frameworks", allow_empty=False))
     source_definitions = _parse_source_definitions(manifest)
@@ -176,6 +183,7 @@ def parse_manifest(manifest: Mapping[str, Any]) -> ConsumablePackage:
     return ConsumablePackage(
         package_id=package_id,
         package_version=package_version,
+        request_id=request_id,
         title=title,
         frameworks=frameworks,
         source_definitions=source_definitions,
@@ -363,6 +371,13 @@ def _require_uuid(obj: Mapping[str, Any], name: str) -> uuid.UUID:
             f"field {name!r} must be a UUID string",
             context={"field": name, "value": value},
         ) from exc
+
+
+def _optional_uuid(obj: Mapping[str, Any], name: str) -> uuid.UUID | None:
+    """Parse an optional UUID field; ``None`` if absent, error if malformed."""
+    if obj.get(name) is None:
+        return None
+    return _require_uuid(obj, name)
 
 
 def _require_datetime(obj: Mapping[str, Any], name: str, *, path: str | None = None) -> datetime:

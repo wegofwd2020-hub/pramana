@@ -98,6 +98,24 @@ class TestTransitions:
         assert out.status == "in_review"
         session.add.assert_called_once()  # audit entry
 
+    async def test_submit_advances_linked_request(self) -> None:
+        from pramana.db.models.content_request import ContentRequest
+
+        draft = make_draft(status="received")
+        req = ContentRequest(
+            id=uuid.uuid4(), tenant_id=TENANT, framework="fcpa", title="t",
+            status="received", requested_by=uuid.uuid4(), spec={},
+        )
+        req.draft_id = draft.id
+        # execute: draft-audit head, advance-select(req), advance-audit head
+        session = fake_session(
+            get=draft, execute=[_result(), _result(scalar=req), _result()]
+        )
+        await cr.submit_for_review(
+            session, draft_id=draft.id, tenant_id=TENANT, actor_user_id=uuid.uuid4(), now=NOW
+        )
+        assert req.status == "in_review"
+
     async def test_submit_from_wrong_state_raises(self) -> None:
         draft = make_draft(
             status="approved",
@@ -192,9 +210,11 @@ class TestPublish:
             approved_at=NOW,
             content_hash="sha256:" + "a" * 64,
         )
-        # execute calls: max-version, deactivate update, course-threshold, audit prev-hash
+        # execute: max-version, deactivate, course-threshold, audit prev-hash,
+        # advance-request lookup (no linked request → None)
         session = fake_session(
-            get=draft, execute=[_result(scalar=2), _result(), _result(), _result()]
+            get=draft,
+            execute=[_result(scalar=2), _result(), _result(), _result(), _result()],
         )
         cv = await cr.publish_draft(
             session,
@@ -217,7 +237,8 @@ class TestPublish:
             content_hash="sha256:" + "a" * 64,
         )
         session = fake_session(
-            get=draft, execute=[_result(scalar=0), _result(), _result(), _result()]
+            get=draft,
+            execute=[_result(scalar=0), _result(), _result(), _result(), _result()],
         )
         cv = await cr.publish_draft(
             session,

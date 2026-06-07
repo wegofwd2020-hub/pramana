@@ -25,9 +25,10 @@ from pramana.db.models.content import ContentDraft
 from pramana.db.models.course import AnswerOption, Course, CourseVersion, Question
 from pramana.domain import content_approval as ca
 from pramana.domain.consumable_package import canonical_json, compute_content_hash
-from pramana.domain.enums import ContentDraftStatus, ContentEvent
+from pramana.domain.enums import ContentDraftStatus, ContentEvent, ContentRequestStatus
 from pramana.domain.publication import QuestionSpec, materialize_quiz
 from pramana.exceptions import InvalidStateTransitionError, NotFoundError
+from pramana.services import content_requests
 from pramana.services.audit import append_audit
 
 
@@ -181,6 +182,13 @@ async def submit_for_review(
         ContentEvent.SUBMIT_FOR_REVIEW,
         tenant_id=tenant_id,
         actor_user_id=actor_user_id,
+        now=now,
+    )
+    await content_requests.advance_for_draft(
+        session,
+        draft_id=draft_id,
+        tenant_id=tenant_id,
+        status=ContentRequestStatus.IN_REVIEW,
         now=now,
     )
     return draft
@@ -351,6 +359,13 @@ async def publish_draft(
         actor_user_id=publisher_user_id,
         now=now,
         extra={"course_version_id": str(course_version_id), "version_number": next_version},
+    )
+    await content_requests.advance_for_draft(
+        session,
+        draft_id=draft_id,
+        tenant_id=tenant_id,
+        status=ContentRequestStatus.PUBLISHED,
+        now=now,
     )
     return course_version
 

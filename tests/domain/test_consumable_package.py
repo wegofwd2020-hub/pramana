@@ -47,6 +47,20 @@ class TestParseManifest:
         assert len(pkg.modules) == 1
         assert pkg.quiz["pass_threshold_pct"] == 80
 
+    def test_request_id_is_optional_and_defaults_none(self) -> None:
+        pkg = parse_manifest(make_signed_manifest())
+        assert pkg.request_id is None
+
+    def test_request_id_parsed_when_echoed(self) -> None:
+        rid = uuid.uuid4()
+        pkg = parse_manifest(make_signed_manifest(request_id=str(rid)))
+        assert pkg.request_id == rid
+
+    def test_malformed_request_id_rejected(self) -> None:
+        manifest = make_signed_manifest(request_id="not-a-uuid")
+        with pytest.raises(PackageValidationError):
+            parse_manifest(manifest)
+
     def test_rejects_non_object_manifest(self) -> None:
         with pytest.raises(PackageValidationError):
             parse_manifest([])  # type: ignore[arg-type]

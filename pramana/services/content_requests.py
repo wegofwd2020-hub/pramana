@@ -154,6 +154,77 @@ async def get_request(
     return cr
 
 
+async def link_received_package(
+    session: AsyncSession,
+    *,
+    request_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    draft_id: uuid.UUID,
+    package_id: uuid.UUID,
+    now: datetime,
+) -> ContentRequest | None:
+    """Close the loop on ingest: link the arrived draft to its originating request.
+
+    Sets the request's ``draft_id`` + ``package_id`` and advances it to
+    ``RECEIVED``. Idempotent and defensive: returns ``None`` (no-op) when no such
+    request exists in the tenant or it has already moved past ``REQUESTED`` /
+    ``GENERATING`` — a re-pushed or unrelated package never disturbs a request
+    that already progressed.
+    """
+    cr = await session.get(ContentRequest, request_id)
+    if cr is None or cr.archived_at is not None or cr.tenant_id != tenant_id:
+        return None
+    if cr.status not in (
+        ContentRequestStatus.REQUESTED.value,
+        ContentRequestStatus.GENERATING.value,
+    ):
+        return None
+
+    cr.draft_id = draft_id
+    cr.package_id = package_id
+    cr.status = ContentRequestStatus.RECEIVED.value
+    await _audit_event(
+        session, cr, event=ContentRequestEvent.RECEIVE, now=now, extra={"draft_id": str(draft_id)}
+    )
+    return cr
+
+
+async def advance_for_draft(
+    session: AsyncSession,
+    *,
+    draft_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    status: ContentRequestStatus,
+    now: datetime,
+) -> ContentRequest | None:
+    """Advance the request linked to ``draft_id`` as its draft moves downstream.
+
+    Called when a draft enters review (``IN_REVIEW``) or is published
+    (``PUBLISHED``). Returns ``None`` when the draft has no originating request
+    (e.g. ingested without a ``request_id``) or the request is already terminal —
+    so it never regresses a published/failed request.
+    """
+    cr = (
+        await session.execute(
+            select(ContentRequest)
+            .where(
+                ContentRequest.tenant_id == tenant_id,
+                ContentRequest.draft_id == draft_id,
+            )
+            .order_by(ContentRequest.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if cr is None or ContentRequestStatus(cr.status).is_terminal:
+        return None
+
+    cr.status = status.value
+    await _audit_event(
+        session, cr, event=ContentRequestEvent.ADVANCE, now=now, extra={"status": status.value}
+    )
+    return cr
+
+
 def parse_status(value: str) -> ContentRequestStatus:
     """Parse a status query value, raising a domain error on an unknown value."""
     try:
@@ -206,6 +277,30 @@ async def _push(
     if result.package_id is not None:
         cr.package_id = uuid.UUID(result.package_id)
 
+    await _audit_event(session, cr, event=event, now=now)
+
+
+async def _audit_event(
+    session: AsyncSession,
+    cr: ContentRequest,
+    *,
+    event: ContentRequestEvent,
+    now: datetime,
+    extra: Mapping[str, Any] | None = None,
+) -> None:
+    """Append one content-request audit entry with the standard payload."""
+    payload: dict[str, Any] = {
+        "framework": cr.framework,
+        "title": cr.title,
+        "status": cr.status,
+        "course_id": str(cr.course_id) if cr.course_id else None,
+        "regenerated_from_draft_id": (
+            str(cr.regenerated_from_draft_id) if cr.regenerated_from_draft_id else None
+        ),
+        "package_id": str(cr.package_id) if cr.package_id else None,
+    }
+    if extra:
+        payload.update(extra)
     await append_audit(
         session,
         tenant_id=cr.tenant_id,
@@ -213,15 +308,7 @@ async def _push(
         entity_type="content_request",
         entity_id=str(cr.id),
         event_type=f"content_request.{event.value}",
-        payload={
-            "framework": cr.framework,
-            "title": cr.title,
-            "course_id": str(cr.course_id) if cr.course_id else None,
-            "regenerated_from_draft_id": (
-                str(cr.regenerated_from_draft_id) if cr.regenerated_from_draft_id else None
-            ),
-            "package_id": str(cr.package_id) if cr.package_id else None,
-        },
+        payload=payload,
         occurred_at=now,
     )
 

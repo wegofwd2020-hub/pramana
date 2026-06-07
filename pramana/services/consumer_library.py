@@ -32,6 +32,7 @@ from pramana.domain.consumable_package import (
 from pramana.domain.enums import ContentEvent
 from pramana.domain.ingestion import IngestedDraftFields, package_to_draft_fields
 from pramana.exceptions import DuplicatePackageError, NotFoundError
+from pramana.services import content_requests
 from pramana.services.audit import append_audit
 
 
@@ -130,4 +131,17 @@ async def ingest_consumable_package(
         },
         occurred_at=now,
     )
+
+    # Close the commission loop: if Mentible echoed the originating request_id,
+    # link this draft to that ContentRequest and advance it to RECEIVED. A no-op
+    # when the package arrived without a request_id (e.g. hand-delivered).
+    if fields.request_id is not None:
+        await content_requests.link_received_package(
+            session,
+            request_id=fields.request_id,
+            tenant_id=tenant_id,
+            draft_id=draft.id,
+            package_id=fields.package_id,
+            now=now,
+        )
     return draft

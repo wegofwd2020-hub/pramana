@@ -108,6 +108,42 @@ class TestIngestConsumablePackage:
         assert session.add.call_count == 2
         session.flush.assert_awaited_once()
 
+    async def test_echoed_request_id_closes_the_loop(
+        self, verifier: HmacSignatureVerifier
+    ) -> None:
+        from pramana.db.models.content_request import ContentRequest
+
+        tenant_id = uuid.uuid4()
+        course_id = uuid.uuid4()
+        request_id = uuid.uuid4()
+        cr = ContentRequest(
+            id=request_id, tenant_id=tenant_id, framework="sox", title="t",
+            status="requested", requested_by=uuid.uuid4(), spec={},
+        )
+        cr.archived_at = None
+        cr.draft_id = cr.package_id = None
+        # course lookup, dup lookup, draft-audit head, link-audit head
+        session = _session(
+            _scalar_result(course_id),
+            _scalar_result(None),
+            _scalar_result(None),
+            _scalar_result(None),
+        )
+        session.get = AsyncMock(return_value=cr)
+
+        draft = await ingest_consumable_package(
+            session,
+            manifest=make_signed_manifest(request_id=str(request_id)),
+            tenant_id=tenant_id,
+            course_id=course_id,
+            verifier=verifier,
+            now=NOW,
+        )
+
+        assert cr.status == "received"
+        assert cr.draft_id == draft.id
+        assert cr.package_id == draft.package_id
+
     async def test_unknown_course_raises_not_found(self, verifier: HmacSignatureVerifier) -> None:
         session = _session(_scalar_result(None))
         with pytest.raises(NotFoundError):

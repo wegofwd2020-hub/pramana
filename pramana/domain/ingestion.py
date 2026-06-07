@@ -46,6 +46,11 @@ class IngestedDraftFields:
     package_version: int
     package_content_hash: str
     signature: str
+    # Correlation hint for closing the commission loop — the originating Package
+    # Request, if Mentible echoed it. Not a ``ContentDraft`` column, so it is
+    # excluded from :meth:`as_model_kwargs`; the ingestion service reads it to
+    # link + advance the matching :class:`ContentRequest`.
+    request_id: uuid.UUID | None
 
     def as_model_kwargs(self) -> dict[str, Any]:
         """Return kwargs for constructing a ``ContentDraft`` row.
@@ -114,4 +119,5 @@ def package_to_draft_fields(
         package_version=package.package_version,
         package_content_hash=package.declared_content_hash,
         signature=package.signature,
+        request_id=package.request_id,
     )

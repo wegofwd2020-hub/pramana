@@ -240,6 +240,93 @@ class TestListAndGet:
             await crq.get_request(session, request_id=uuid.uuid4(), tenant_id=TENANT)
 
 
+def _request(status: str = "requested") -> ContentRequest:
+    cr = ContentRequest(
+        id=uuid.uuid4(), tenant_id=TENANT, framework="fcpa", title="t",
+        status=status, requested_by=USER, spec={},
+    )
+    cr.course_id = cr.package_id = cr.draft_id = cr.regenerated_from_draft_id = None
+    cr.archived_at = None
+    return cr
+
+
+class TestLinkReceivedPackage:
+    async def test_links_and_advances_to_received(self) -> None:
+        cr = _request("requested")
+        draft_id, pkg_id = uuid.uuid4(), uuid.uuid4()
+        session = fake_session(get=cr, execute=[_result()])  # audit prev-hash
+        out = await crq.link_received_package(
+            session, request_id=cr.id, tenant_id=TENANT,
+            draft_id=draft_id, package_id=pkg_id, now=NOW,
+        )
+        assert out is cr
+        assert cr.status == ContentRequestStatus.RECEIVED.value
+        assert cr.draft_id == draft_id
+        assert cr.package_id == pkg_id
+
+    async def test_noop_when_request_missing(self) -> None:
+        session = fake_session(get=None)
+        out = await crq.link_received_package(
+            session, request_id=uuid.uuid4(), tenant_id=TENANT,
+            draft_id=uuid.uuid4(), package_id=uuid.uuid4(), now=NOW,
+        )
+        assert out is None
+        session.add.assert_not_called()
+
+    async def test_noop_when_already_past_requested(self) -> None:
+        cr = _request("published")
+        session = fake_session(get=cr)
+        out = await crq.link_received_package(
+            session, request_id=cr.id, tenant_id=TENANT,
+            draft_id=uuid.uuid4(), package_id=uuid.uuid4(), now=NOW,
+        )
+        assert out is None
+        assert cr.status == "published"
+
+    async def test_noop_cross_tenant(self) -> None:
+        cr = _request("requested")
+        cr.tenant_id = uuid.uuid4()
+        session = fake_session(get=cr)
+        out = await crq.link_received_package(
+            session, request_id=cr.id, tenant_id=TENANT,
+            draft_id=uuid.uuid4(), package_id=uuid.uuid4(), now=NOW,
+        )
+        assert out is None
+
+
+class TestAdvanceForDraft:
+    async def test_advances_linked_request(self) -> None:
+        cr = _request("received")
+        draft_id = uuid.uuid4()
+        cr.draft_id = draft_id
+        session = fake_session(execute=[_result(scalar=cr), _result()])
+        out = await crq.advance_for_draft(
+            session, draft_id=draft_id, tenant_id=TENANT,
+            status=ContentRequestStatus.PUBLISHED, now=NOW,
+        )
+        assert out is cr
+        assert cr.status == ContentRequestStatus.PUBLISHED.value
+
+    async def test_noop_when_no_linked_request(self) -> None:
+        session = fake_session(execute=[_result(scalar=None)])
+        out = await crq.advance_for_draft(
+            session, draft_id=uuid.uuid4(), tenant_id=TENANT,
+            status=ContentRequestStatus.IN_REVIEW, now=NOW,
+        )
+        assert out is None
+
+    async def test_does_not_regress_terminal_request(self) -> None:
+        cr = _request("published")
+        cr.draft_id = uuid.uuid4()
+        session = fake_session(execute=[_result(scalar=cr)])
+        out = await crq.advance_for_draft(
+            session, draft_id=cr.draft_id, tenant_id=TENANT,
+            status=ContentRequestStatus.IN_REVIEW, now=NOW,
+        )
+        assert out is None
+        assert cr.status == "published"
+
+
 def test_parse_status_rejects_unknown() -> None:
     from pramana.exceptions import InvalidStateTransitionError
 

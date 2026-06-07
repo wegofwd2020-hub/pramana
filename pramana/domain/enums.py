@@ -203,4 +203,6 @@ class ContentRequestEvent(StrEnum):
     COMMISSION = auto()
     PUSH = auto()
     REGENERATE = auto()
+    RECEIVE = auto()
+    ADVANCE = auto()
     FAIL = auto()
