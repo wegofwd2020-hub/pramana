@@ -39,9 +39,7 @@ class TestExceptionHierarchy:
             ExternalServiceError,
         ],
     )
-    def test_top_level_errors_inherit_from_base(
-        self, subclass: type[PramanaError]
-    ) -> None:
+    def test_top_level_errors_inherit_from_base(self, subclass: type[PramanaError]) -> None:
         """All top-level errors derive from :class:`PramanaError`."""
         assert issubclass(subclass, PramanaError)
 
@@ -55,9 +53,7 @@ class TestExceptionHierarchy:
             SeparationOfDutiesError,
         ],
     )
-    def test_domain_subclasses_inherit_from_domain_error(
-        self, subclass: type[DomainError]
-    ) -> None:
+    def test_domain_subclasses_inherit_from_domain_error(self, subclass: type[DomainError]) -> None:
         """Domain subclasses derive from :class:`DomainError`."""
         assert issubclass(subclass, DomainError)
         assert issubclass(subclass, PramanaError)

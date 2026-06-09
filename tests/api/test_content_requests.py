@@ -38,8 +38,11 @@ def _body() -> dict:
         "framework": "fcpa",
         "title": "FCPA Anti-Bribery",
         "source_definitions": [
-            {"framework": "fcpa", "clause": "anti-bribery",
-             "ref": "docs/frameworks/framework_fcpa.md#anti-bribery"}
+            {
+                "framework": "fcpa",
+                "clause": "anti-bribery",
+                "ref": "docs/frameworks/framework_fcpa.md#anti-bribery",
+            }
         ],
         "assessment": {"pass_threshold_pct": 80},
     }

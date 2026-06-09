@@ -165,4 +165,4 @@ def get_settings() -> Settings:
     Raises:
         pydantic.ValidationError: If required settings are missing or malformed.
     """
-    return Settings()  # type: ignore[call-arg]
+    return Settings()

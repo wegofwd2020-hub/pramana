@@ -105,7 +105,9 @@ class TestRejection:
 
     def test_too_few_options(self) -> None:
         with pytest.raises(ValidationError):
-            materialize_quiz(_body(questions=[{"prompt": "p", "options": ["a"], "answer_index": 0}]))
+            materialize_quiz(
+                _body(questions=[{"prompt": "p", "options": ["a"], "answer_index": 0}])
+            )
 
     def test_blank_option(self) -> None:
         with pytest.raises(ValidationError):

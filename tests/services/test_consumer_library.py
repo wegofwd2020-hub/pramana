@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -22,7 +22,7 @@ from pramana.services.consumer_library import (
 from pramana.services.package_signing import HmacSignatureVerifier
 from tests.support import DEFAULT_SECRET, make_signed_manifest
 
-NOW = datetime(2026, 6, 5, 13, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 6, 5, 13, 0, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -108,17 +108,20 @@ class TestIngestConsumablePackage:
         assert session.add.call_count == 2
         session.flush.assert_awaited_once()
 
-    async def test_echoed_request_id_closes_the_loop(
-        self, verifier: HmacSignatureVerifier
-    ) -> None:
+    async def test_echoed_request_id_closes_the_loop(self, verifier: HmacSignatureVerifier) -> None:
         from pramana.db.models.content_request import ContentRequest
 
         tenant_id = uuid.uuid4()
         course_id = uuid.uuid4()
         request_id = uuid.uuid4()
         cr = ContentRequest(
-            id=request_id, tenant_id=tenant_id, framework="sox", title="t",
-            status="requested", requested_by=uuid.uuid4(), spec={},
+            id=request_id,
+            tenant_id=tenant_id,
+            framework="sox",
+            title="t",
+            status="requested",
+            requested_by=uuid.uuid4(),
+            spec={},
         )
         cr.archived_at = None
         cr.draft_id = cr.package_id = None

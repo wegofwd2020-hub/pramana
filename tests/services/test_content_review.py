@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -19,7 +19,7 @@ from pramana.exceptions import (
 )
 from pramana.services import content_review as cr
 
-NOW = datetime(2026, 6, 5, 14, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 6, 5, 14, 0, tzinfo=UTC)
 TENANT = uuid.uuid4()
 
 
@@ -36,9 +36,7 @@ def make_draft(status: str = "received", **kw) -> ContentDraft:
                 "modules": [{"heading": "x"}],
                 "quiz": {
                     "pass_threshold_pct": 80,
-                    "questions": [
-                        {"prompt": "Q1?", "options": ["a", "b", "c"], "answer_index": 0}
-                    ],
+                    "questions": [{"prompt": "Q1?", "options": ["a", "b", "c"], "answer_index": 0}],
                 },
             },
         ),
@@ -103,14 +101,17 @@ class TestTransitions:
 
         draft = make_draft(status="received")
         req = ContentRequest(
-            id=uuid.uuid4(), tenant_id=TENANT, framework="fcpa", title="t",
-            status="received", requested_by=uuid.uuid4(), spec={},
+            id=uuid.uuid4(),
+            tenant_id=TENANT,
+            framework="fcpa",
+            title="t",
+            status="received",
+            requested_by=uuid.uuid4(),
+            spec={},
         )
         req.draft_id = draft.id
         # execute: draft-audit head, advance-select(req), advance-audit head
-        session = fake_session(
-            get=draft, execute=[_result(), _result(scalar=req), _result()]
-        )
+        session = fake_session(get=draft, execute=[_result(), _result(scalar=req), _result()])
         await cr.submit_for_review(
             session, draft_id=draft.id, tenant_id=TENANT, actor_user_id=uuid.uuid4(), now=NOW
         )

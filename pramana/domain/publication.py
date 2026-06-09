@@ -16,10 +16,8 @@ rather than producing a broken, ungradeable course version.
 The contract shape (Mentible ADR-011 §4, ``quiz``)::
 
     {
-      "pass_threshold_pct": 80,
-      "questions": [
-        {"prompt": "...", "options": ["A", "B", "C"], "answer_index": 0}
-      ]
+        "pass_threshold_pct": 80,
+        "questions": [{"prompt": "...", "options": ["A", "B", "C"], "answer_index": 0}],
     }
 """
 
@@ -27,7 +25,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeGuard
 
 from pramana.domain.enums import QuestionType
 from pramana.exceptions import ValidationError
@@ -90,9 +88,7 @@ def materialize_quiz(body: Mapping[str, Any]) -> MaterializedQuiz:
             context={"field": "quiz.questions"},
         )
 
-    questions = tuple(
-        _materialize_question(item, index=i) for i, item in enumerate(raw_questions)
-    )
+    questions = tuple(_materialize_question(item, index=i) for i, item in enumerate(raw_questions))
     return MaterializedQuiz(
         questions=questions,
         pass_threshold_pct=_optional_threshold(quiz),
@@ -133,8 +129,7 @@ def _materialize_question(item: Any, *, index: int) -> QuestionSpec:
         )
     if not 0 <= answer_index < len(raw_options):
         raise ValidationError(
-            f"{path}.answer_index {answer_index} out of range for "
-            f"{len(raw_options)} options",
+            f"{path}.answer_index {answer_index} out of range for {len(raw_options)} options",
             context={"field": f"{path}.answer_index", "value": answer_index},
         )
 
@@ -168,5 +163,5 @@ def _optional_threshold(quiz: Mapping[str, Any]) -> int | None:
     return value
 
 
-def _is_list(value: Any) -> bool:
+def _is_list(value: Any) -> TypeGuard[Sequence[Any]]:
     return isinstance(value, Sequence) and not isinstance(value, str | bytes)

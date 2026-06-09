@@ -8,10 +8,11 @@ terminal states are dead ends and separation of duties is never bypassable.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from pramana.domain.content_approval import (
     ContentDraftSnapshot,
@@ -28,7 +29,7 @@ from pramana.exceptions import (
     SeparationOfDutiesError,
 )
 
-NOW = datetime(2026, 6, 5, 12, 0, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 6, 5, 12, 0, 0, tzinfo=UTC)
 NAIVE = datetime(2026, 6, 5, 12, 0, 0)
 GENERATOR = uuid.uuid4()
 APPROVER = uuid.uuid4()

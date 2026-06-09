@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pramana.domain.enums import ContentDraftStatus
 from pramana.exceptions import (
@@ -87,8 +87,7 @@ class ContentDraftSnapshot:
             or self.content_hash is not None
         ):
             raise ValueError(
-                f"status {self.status.value!r} is not approved but approval "
-                "fields are set"
+                f"status {self.status.value!r} is not approved but approval fields are set"
             )
 
         is_published = self.status is ContentDraftStatus.PUBLISHED
@@ -96,8 +95,7 @@ class ContentDraftSnapshot:
             raise ValueError("PUBLISHED draft must reference a course version")
         if not is_published and self.published_course_version_id is not None:
             raise ValueError(
-                f"status {self.status.value!r} is not published but references a "
-                "course version"
+                f"status {self.status.value!r} is not published but references a course version"
             )
 
         # Content must exist once a draft is under review or beyond.
@@ -276,4 +274,4 @@ def received_package_snapshot() -> ContentDraftSnapshot:
 
 def utcnow() -> datetime:
     """Return the current UTC time as a timezone-aware datetime."""
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)

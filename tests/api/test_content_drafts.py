@@ -193,8 +193,13 @@ def test_regenerate_returns_202_content_request() -> None:
     from pramana.db.models.content_request import ContentRequest
 
     cr = ContentRequest(
-        id=uuid.uuid4(), tenant_id=uuid.uuid4(), framework="fcpa", title="t",
-        status="requested", requested_by=uuid.uuid4(), spec={},
+        id=uuid.uuid4(),
+        tenant_id=uuid.uuid4(),
+        framework="fcpa",
+        title="t",
+        status="requested",
+        requested_by=uuid.uuid4(),
+        spec={},
     )
     cr.course_id = cr.package_id = cr.draft_id = None
 

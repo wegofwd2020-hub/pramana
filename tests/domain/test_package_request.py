@@ -17,12 +17,19 @@ def _body(**overrides: Any) -> dict[str, Any]:
         "title": "FCPA Anti-Bribery for At-Risk Roles",
         "scope": {"personas": ["employee"], "risk_tier": "high"},
         "source_definitions": [
-            {"framework": "fcpa", "clause": "anti-bribery",
-             "ref": "docs/frameworks/framework_fcpa.md#anti-bribery"}
+            {
+                "framework": "fcpa",
+                "clause": "anti-bribery",
+                "ref": "docs/frameworks/framework_fcpa.md#anti-bribery",
+            }
         ],
         "learning_objectives": ["Recognise a foreign official"],
-        "assessment": {"required": True, "pass_threshold_pct": 80, "min_questions": 8,
-                       "style": "scenario-based"},
+        "assessment": {
+            "required": True,
+            "pass_threshold_pct": 80,
+            "min_questions": 8,
+            "style": "scenario-based",
+        },
         "constraints": {"every_claim_cited": True, "length_minutes": 20},
         "deliverables": ["epub3", "pdf"],
         "visuals": ["animated_svg"],

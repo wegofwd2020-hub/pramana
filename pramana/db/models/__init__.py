@@ -33,7 +33,7 @@ from pramana.db.models.identity import (
     UserType,
 )
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - grouped by domain, not alphabetical
     # Identity
     "Tenant",
     "User",

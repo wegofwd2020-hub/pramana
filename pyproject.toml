@@ -114,7 +114,10 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["ANN", "S105", "S106"]  # Tests can be looser on annotations & hardcoded "passwords"
+# Tests are looser on annotations & hardcoded "passwords"; and on a few
+# style/safety lints that are noise in fixtures: fixed naive datetimes (DTZ),
+# broad/compound assertions in pytest.raises (PT011/PT018/B017).
+"tests/**/*.py" = ["ANN", "S105", "S106", "DTZ", "PT011", "PT018", "B017"]
 "alembic/env.py" = ["ANN", "E501"]
 
 [tool.ruff.format]

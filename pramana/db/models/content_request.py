@@ -16,9 +16,12 @@ does not re-derive it, and the exact bytes pushed to Mentible stay on record.
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from sqlalchemy import (
     Enum as SQLEnum,
+)
+from sqlalchemy import (
     ForeignKey,
     Index,
     String,
@@ -62,7 +65,7 @@ class ContentRequest(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin)
 
     # The full Package Request spec (scope/source_definitions/assessment/…),
     # stored verbatim as the exact payload pushed to Mentible.
-    spec: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    spec: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
 
     # Target course lineage (NULL = a new course will be created on ingest).
     course_id: Mapped[uuid.UUID | None] = mapped_column(

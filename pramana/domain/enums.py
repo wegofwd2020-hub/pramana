@@ -61,7 +61,8 @@ class AttemptOutcome(StrEnum):
     """Outcome of a single quiz attempt."""
 
     IN_PROGRESS = "in_progress"
-    PASS = "pass"
+    # "pass" is an outcome value, not a credential — silence S105 (ruff) + B105 (bandit).
+    PASS = "pass"  # noqa: S105  # nosec B105
     FAIL = "fail"
 
 
