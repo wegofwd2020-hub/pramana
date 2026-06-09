@@ -189,6 +189,9 @@ class ContentEvent(StrEnum):
     without re-deriving it from before/after states.
     """
 
+    # In-process generation (ADR-013): Pramana drafted this content itself via
+    # the wegofwd-llm seam (distinct from RECEIVE, an ingested Mentible package).
+    GENERATE = auto()
     RECEIVE = auto()
     SUBMIT_FOR_REVIEW = auto()
     REQUEST_CHANGES = auto()

@@ -85,9 +85,7 @@ class Settings(BaseSettings):
     secret_key: SecretStr
 
     # Database
-    database_url: str = Field(
-        default="postgresql+asyncpg://pramana:pramana@localhost:5432/pramana"
-    )
+    database_url: str = Field(default="postgresql+asyncpg://pramana:pramana@localhost:5432/pramana")
     database_pool_size: Annotated[int, Field(ge=1, le=100)] = 10
     database_max_overflow: Annotated[int, Field(ge=0, le=200)] = 20
     database_echo: bool = False
@@ -129,6 +127,17 @@ class Settings(BaseSettings):
     # Definitions library (the "law" picker source, ADR-011 §1): directory of
     # framework_<code>.md docs whose clause anchors a Package Request cites.
     definitions_root: str = "docs/frameworks"
+
+    # In-process LLM generation (ADR-013): Pramana drafts text-first compliance
+    # content (quiz items against a clause, …) via the shared wegofwd-llm seam.
+    # MANAGED-key regime — Pramana holds the key; it is passed to the seam per
+    # call and never logged. Empty key in dev/test → generation is not wired
+    # (callers inject a fake provider in tests). The drafted output is NEVER
+    # assignable: it lands as a DRAFT and flows through the human-approval gate.
+    llm_provider: str = "anthropic"
+    llm_model: str = "claude-sonnet-4-6"
+    llm_api_key: SecretStr = SecretStr("")
+    llm_max_tokens: Annotated[int, Field(ge=256, le=8192)] = 4096
 
     # Compliance defaults
     default_pass_threshold_pct: Annotated[int, Field(ge=0, le=100)] = 80
