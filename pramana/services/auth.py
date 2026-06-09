@@ -211,9 +211,7 @@ async def _provision_by_email(
     # The IdP signed the token, but only trust the email for *matching* if it
     # didn't explicitly mark it unverified.
     if claims.get("email_verified") is False:
-        raise AuthorizationError(
-            "cannot provision from an unverified email", context={"sub": sub}
-        )
+        raise AuthorizationError("cannot provision from an unverified email", context={"sub": sub})
 
     matches = (
         (await session.execute(select(User).where(func.lower(User.email) == email.lower())))

@@ -27,7 +27,7 @@ Glossary
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Final
 
 from pramana.domain.enums import (
@@ -81,13 +81,9 @@ class AssignmentSnapshot:
 
         # Invariant: terminal_at is set iff status is terminal.
         if self.status.is_terminal and self.terminal_at is None:
-            raise ValueError(
-                f"status {self.status.value!r} is terminal but terminal_at is None"
-            )
+            raise ValueError(f"status {self.status.value!r} is terminal but terminal_at is None")
         if not self.status.is_terminal and self.terminal_at is not None:
-            raise ValueError(
-                f"status {self.status.value!r} is not terminal but terminal_at is set"
-            )
+            raise ValueError(f"status {self.status.value!r} is not terminal but terminal_at is set")
 
         # Invariant: cooldown_until is set iff status started the cooldown.
         if self.status.started_cooldown and self.cooldown_until is None:
@@ -96,8 +92,7 @@ class AssignmentSnapshot:
             )
         if not self.status.started_cooldown and self.cooldown_until is not None:
             raise ValueError(
-                f"status {self.status.value!r} does not start cooldown "
-                "but cooldown_until is set"
+                f"status {self.status.value!r} does not start cooldown but cooldown_until is set"
             )
 
     @property
@@ -159,14 +154,11 @@ def start_attempt(
         )
 
     if user_has_other_in_progress_assignment:
-        raise ConcurrentAssignmentError(
-            "User already has another assignment in progress (FR7)."
-        )
+        raise ConcurrentAssignmentError("User already has another assignment in progress (FR7).")
 
     if snapshot.attempts_used >= snapshot.max_attempts:
         raise MaxAttemptsExceededError(
-            f"User has used {snapshot.attempts_used} of "
-            f"{snapshot.max_attempts} attempts.",
+            f"User has used {snapshot.attempts_used} of {snapshot.max_attempts} attempts.",
             context={
                 "attempts_used": snapshot.attempts_used,
                 "max_attempts": snapshot.max_attempts,
@@ -224,9 +216,7 @@ def submit_attempt(
     if now.tzinfo is None:
         raise InvalidStateTransitionError("`now` must be timezone-aware")
     if not 0.0 <= score_pct <= 100.0:
-        raise InvalidStateTransitionError(
-            f"score_pct {score_pct} out of range [0, 100]"
-        )
+        raise InvalidStateTransitionError(f"score_pct {score_pct} out of range [0, 100]")
     if not 0.0 <= pass_threshold_pct <= 100.0:
         raise InvalidStateTransitionError(
             f"pass_threshold_pct {pass_threshold_pct} out of range [0, 100]"
@@ -390,4 +380,4 @@ def is_within_cooldown(
 
 def utcnow() -> datetime:
     """Return the current UTC time as a timezone-aware datetime."""
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)

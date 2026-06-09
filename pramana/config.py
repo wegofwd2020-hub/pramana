@@ -85,9 +85,7 @@ class Settings(BaseSettings):
     secret_key: SecretStr
 
     # Database
-    database_url: str = Field(
-        default="postgresql+asyncpg://pramana:pramana@localhost:5432/pramana"
-    )
+    database_url: str = Field(default="postgresql+asyncpg://pramana:pramana@localhost:5432/pramana")
     database_pool_size: Annotated[int, Field(ge=1, le=100)] = 10
     database_max_overflow: Annotated[int, Field(ge=0, le=200)] = 20
     database_echo: bool = False
@@ -156,4 +154,4 @@ def get_settings() -> Settings:
     Raises:
         pydantic.ValidationError: If required settings are missing or malformed.
     """
-    return Settings()  # type: ignore[call-arg]
+    return Settings()

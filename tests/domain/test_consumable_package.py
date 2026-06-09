@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import timezone
+from datetime import UTC
 
 import pytest
 
@@ -43,7 +43,7 @@ class TestParseManifest:
         assert pkg.frameworks == ("sox",)
         assert pkg.source_definitions[0].clause == "404"
         assert pkg.provenance.engine == "mentible"
-        assert pkg.provenance.generated_at.tzinfo == timezone.utc
+        assert pkg.provenance.generated_at.tzinfo == UTC
         assert len(pkg.modules) == 1
         assert pkg.quiz["pass_threshold_pct"] == 80
 

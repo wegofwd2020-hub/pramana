@@ -25,7 +25,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeGuard
 
 from pramana.exceptions import ValidationError
 
@@ -171,9 +171,7 @@ def _parse_clauses(body: Mapping[str, Any]) -> tuple[RequestedClause, ...]:
 def _parse_assessment(body: Mapping[str, Any]) -> Assessment:
     raw = body.get("assessment")
     if not isinstance(raw, Mapping):
-        raise ValidationError(
-            "assessment must be an object", context={"field": "assessment"}
-        )
+        raise ValidationError("assessment must be an object", context={"field": "assessment"})
     threshold = _require_int(raw, "pass_threshold_pct", minimum=0, maximum=100, path="assessment")
     min_questions = raw.get("min_questions")
     if min_questions is not None:
@@ -257,9 +255,7 @@ def _optional_uuid(body: Mapping[str, Any], name: str) -> uuid.UUID | None:
         ) from exc
 
 
-def _optional_object(
-    body: Mapping[str, Any], name: str, validate: Any = None
-) -> Mapping[str, Any]:
+def _optional_object(body: Mapping[str, Any], name: str, validate: Any = None) -> Mapping[str, Any]:
     value = body.get(name)
     if value is None:
         return {}
@@ -275,9 +271,7 @@ def _optional_str_tuple(body: Mapping[str, Any], name: str) -> tuple[str, ...]:
     if value is None:
         return ()
     if not _is_list(value):
-        raise ValidationError(
-            f"field {name!r} must be a list of strings", context={"field": name}
-        )
+        raise ValidationError(f"field {name!r} must be a list of strings", context={"field": name})
     for i, item in enumerate(value):
         if not isinstance(item, str) or not item.strip():
             raise ValidationError(
@@ -300,5 +294,5 @@ def _parse_enum_tuple(
     return values
 
 
-def _is_list(value: Any) -> bool:
+def _is_list(value: Any) -> TypeGuard[Sequence[Any]]:
     return isinstance(value, Sequence) and not isinstance(value, str | bytes)

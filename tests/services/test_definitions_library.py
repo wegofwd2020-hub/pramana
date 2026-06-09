@@ -78,7 +78,9 @@ class TestListClauses:
 class TestResolves:
     def test_resolves_by_ref(self, root: Path) -> None:
         assert dl.resolves(
-            root, framework="fcpa", clause="anti-bribery",
+            root,
+            framework="fcpa",
+            clause="anti-bribery",
             ref="docs/frameworks/framework_fcpa.md#anti-bribery",
         )
 
@@ -87,7 +89,9 @@ class TestResolves:
 
     def test_unknown_anchor_does_not_resolve(self, root: Path) -> None:
         assert not dl.resolves(
-            root, framework="fcpa", clause="bribery",
+            root,
+            framework="fcpa",
+            clause="bribery",
             ref="docs/frameworks/framework_fcpa.md#made-up",
         )
 
@@ -102,8 +106,11 @@ class TestValidateRequestClauses:
                 "framework": "fcpa",
                 "title": "t",
                 "source_definitions": [
-                    {"framework": "fcpa", "clause": "anti-bribery",
-                     "ref": "docs/frameworks/framework_fcpa.md#anti-bribery"}
+                    {
+                        "framework": "fcpa",
+                        "clause": "anti-bribery",
+                        "ref": "docs/frameworks/framework_fcpa.md#anti-bribery",
+                    }
                 ],
                 "assessment": {"pass_threshold_pct": 80},
             }
@@ -116,16 +123,20 @@ class TestValidateRequestClauses:
                 "framework": "fcpa",
                 "title": "t",
                 "source_definitions": [
-                    {"framework": "fcpa", "clause": "anti-bribery",
-                     "ref": "docs/frameworks/framework_fcpa.md#anti-bribery"},
-                    {"framework": "fcpa", "clause": "ghost",
-                     "ref": "docs/frameworks/framework_fcpa.md#ghost"},
+                    {
+                        "framework": "fcpa",
+                        "clause": "anti-bribery",
+                        "ref": "docs/frameworks/framework_fcpa.md#anti-bribery",
+                    },
+                    {
+                        "framework": "fcpa",
+                        "clause": "ghost",
+                        "ref": "docs/frameworks/framework_fcpa.md#ghost",
+                    },
                 ],
                 "assessment": {"pass_threshold_pct": 80},
             }
         )
         with pytest.raises(ValidationError) as exc:
             dl.validate_request_clauses(root, req)
-        assert exc.value.context["unresolved"] == [
-            "docs/frameworks/framework_fcpa.md#ghost"
-        ]
+        assert exc.value.context["unresolved"] == ["docs/frameworks/framework_fcpa.md#ghost"]

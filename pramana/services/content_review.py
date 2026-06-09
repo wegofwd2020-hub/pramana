@@ -48,9 +48,7 @@ def _snapshot(draft: ContentDraft) -> ca.ContentDraftSnapshot:
     )
 
 
-def _add_question(
-    session: AsyncSession, course_version_id: uuid.UUID, spec: QuestionSpec
-) -> None:
+def _add_question(session: AsyncSession, course_version_id: uuid.UUID, spec: QuestionSpec) -> None:
     """Persist a :class:`QuestionSpec` and its options under a course version."""
     question_id = uuid.uuid4()
     session.add(

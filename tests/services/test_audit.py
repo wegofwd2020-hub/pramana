@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pramana.services.audit import compute_audit_hash
 
-NOW = datetime(2026, 6, 5, 13, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 6, 5, 13, 0, tzinfo=UTC)
 
 
 def _hash(**overrides):

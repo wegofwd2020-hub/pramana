@@ -47,7 +47,7 @@ def get_engine() -> AsyncEngine:
             echo=settings.database_echo,
             future=True,
         )
-    except Exception as exc:  # noqa: BLE001 — surface as DatabaseError
+    except Exception as exc:
         raise DatabaseError(
             f"Failed to construct async engine: {exc}",
             context={"database_url": settings.database_url},
@@ -85,7 +85,7 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
     except DatabaseError:
         await session.rollback()
         raise
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         await session.rollback()
         raise DatabaseError(f"Database operation failed: {exc}") from exc
     finally:

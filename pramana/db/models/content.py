@@ -23,17 +23,20 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
-    Enum as SQLEnum,
     ForeignKey,
     Index,
     Integer,
     String,
     Text,
     text,
+)
+from sqlalchemy import (
+    Enum as SQLEnum,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -80,9 +83,9 @@ class ContentDraft(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
 
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     # Structured content body (sections, quiz, deck/video render hints).
-    body: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    body: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     # Framework clauses each section is based on, e.g. [{"section": 0, "ref": "sox.404"}].
-    source_citations: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    source_citations: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
 
     # ── Provenance (how the draft was produced) ────────────────────────────────
     gen_engine: Mapped[str | None] = mapped_column(
@@ -93,9 +96,7 @@ class ContentDraft(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     gen_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
     gen_provider: Mapped[str | None] = mapped_column(String(60), nullable=True)
     gen_prompt_version: Mapped[str | None] = mapped_column(String(60), nullable=True)
-    generated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     generated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("user_account.user_id", ondelete="SET NULL"),
@@ -133,9 +134,7 @@ class ContentDraft(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
         ForeignKey("user_account.user_id", ondelete="SET NULL"),
         nullable=True,
     )
-    approved_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     attestation_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_hash: Mapped[str | None] = mapped_column(
         String(128),

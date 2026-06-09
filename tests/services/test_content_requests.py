@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -16,7 +16,7 @@ from pramana.exceptions import ExternalServiceError, NotFoundError, ValidationEr
 from pramana.services import content_requests as crq
 from pramana.services.mentible_client import PushResult
 
-NOW = datetime(2026, 6, 7, 14, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 6, 7, 14, 0, tzinfo=UTC)
 TENANT = uuid.uuid4()
 USER = uuid.uuid4()
 
@@ -34,8 +34,11 @@ def _body(**overrides) -> dict:
         "framework": "fcpa",
         "title": "FCPA Anti-Bribery",
         "source_definitions": [
-            {"framework": "fcpa", "clause": "anti-bribery",
-             "ref": "docs/frameworks/framework_fcpa.md#anti-bribery"}
+            {
+                "framework": "fcpa",
+                "clause": "anti-bribery",
+                "ref": "docs/frameworks/framework_fcpa.md#anti-bribery",
+            }
         ],
         "assessment": {"pass_threshold_pct": 80},
     }
@@ -54,8 +57,8 @@ def _result(*, scalar=None, rows=()) -> MagicMock:
 def fake_session(*, get=None, execute=None) -> AsyncMock:
     s = AsyncMock()
     s.get = AsyncMock(return_value=get)
-    s.execute = AsyncMock(side_effect=execute) if execute is not None else AsyncMock(
-        return_value=_result()
+    s.execute = (
+        AsyncMock(side_effect=execute) if execute is not None else AsyncMock(return_value=_result())
     )
     s.add = MagicMock()
     s.flush = AsyncMock()
@@ -103,14 +106,22 @@ class TestCommission:
         mentible = FakeMentible()
         body = _body(
             source_definitions=[
-                {"framework": "fcpa", "clause": "ghost",
-                 "ref": "docs/frameworks/framework_fcpa.md#ghost"}
+                {
+                    "framework": "fcpa",
+                    "clause": "ghost",
+                    "ref": "docs/frameworks/framework_fcpa.md#ghost",
+                }
             ]
         )
         with pytest.raises(ValidationError):
             await crq.commission_request(
-                session, body=body, tenant_id=TENANT, requested_by=USER,
-                definitions_root=root, mentible=mentible, now=NOW,
+                session,
+                body=body,
+                tenant_id=TENANT,
+                requested_by=USER,
+                definitions_root=root,
+                mentible=mentible,
+                now=NOW,
             )
         assert mentible.pushed == []
         session.add.assert_not_called()
@@ -119,8 +130,13 @@ class TestCommission:
         session = fake_session()
         with pytest.raises(ValidationError):
             await crq.commission_request(
-                session, body={"framework": "fcpa"}, tenant_id=TENANT, requested_by=USER,
-                definitions_root=root, mentible=FakeMentible(), now=NOW,
+                session,
+                body={"framework": "fcpa"},
+                tenant_id=TENANT,
+                requested_by=USER,
+                definitions_root=root,
+                mentible=FakeMentible(),
+                now=NOW,
             )
 
     async def test_push_rejection_raises(self, root: Path) -> None:
@@ -128,8 +144,13 @@ class TestCommission:
         mentible = FakeMentible(result=PushResult(accepted=False, detail="nope"))
         with pytest.raises(ExternalServiceError):
             await crq.commission_request(
-                session, body=_body(), tenant_id=TENANT, requested_by=USER,
-                definitions_root=root, mentible=mentible, now=NOW,
+                session,
+                body=_body(),
+                tenant_id=TENANT,
+                requested_by=USER,
+                definitions_root=root,
+                mentible=mentible,
+                now=NOW,
             )
 
     async def test_push_transport_error_propagates(self, root: Path) -> None:
@@ -137,8 +158,13 @@ class TestCommission:
         mentible = FakeMentible(raises=ExternalServiceError("boom"))
         with pytest.raises(ExternalServiceError):
             await crq.commission_request(
-                session, body=_body(), tenant_id=TENANT, requested_by=USER,
-                definitions_root=root, mentible=mentible, now=NOW,
+                session,
+                body=_body(),
+                tenant_id=TENANT,
+                requested_by=USER,
+                definitions_root=root,
+                mentible=mentible,
+                now=NOW,
             )
 
     async def test_synchronous_package_id_recorded(self, root: Path) -> None:
@@ -146,8 +172,13 @@ class TestCommission:
         session = fake_session(execute=[_result()])
         mentible = FakeMentible(result=PushResult(accepted=True, package_id=str(pkg)))
         cr = await crq.commission_request(
-            session, body=_body(), tenant_id=TENANT, requested_by=USER,
-            definitions_root=root, mentible=mentible, now=NOW,
+            session,
+            body=_body(),
+            tenant_id=TENANT,
+            requested_by=USER,
+            definitions_root=root,
+            mentible=mentible,
+            now=NOW,
         )
         assert cr.package_id == pkg
 
@@ -162,8 +193,11 @@ class TestRegenerate:
             title="FCPA Anti-Bribery",
             body={"quiz": {"pass_threshold_pct": 80, "questions": [1]}},
             source_citations=[
-                {"framework": "fcpa", "clause": "anti-bribery",
-                 "ref": "docs/frameworks/framework_fcpa.md#anti-bribery"}
+                {
+                    "framework": "fcpa",
+                    "clause": "anti-bribery",
+                    "ref": "docs/frameworks/framework_fcpa.md#anti-bribery",
+                }
             ],
             package_id=uuid.uuid4(),
             package_version=1,
@@ -196,9 +230,14 @@ class TestRegenerate:
         session = fake_session(get=draft, execute=[_result(scalar=None), _result()])
         mentible = FakeMentible()
         cr = await crq.regenerate_from_draft(
-            session, draft_id=draft.id, tenant_id=TENANT, requested_by=USER,
+            session,
+            draft_id=draft.id,
+            tenant_id=TENANT,
+            requested_by=USER,
             parameter_overrides={"title": "Revised Title"},
-            definitions_root=root, mentible=mentible, now=NOW,
+            definitions_root=root,
+            mentible=mentible,
+            now=NOW,
         )
         assert cr.title == "Revised Title"
 
@@ -206,9 +245,14 @@ class TestRegenerate:
         session = fake_session(get=None)
         with pytest.raises(NotFoundError):
             await crq.regenerate_from_draft(
-                session, draft_id=uuid.uuid4(), tenant_id=TENANT, requested_by=USER,
-                parameter_overrides=None, definitions_root=root,
-                mentible=FakeMentible(), now=NOW,
+                session,
+                draft_id=uuid.uuid4(),
+                tenant_id=TENANT,
+                requested_by=USER,
+                parameter_overrides=None,
+                definitions_root=root,
+                mentible=FakeMentible(),
+                now=NOW,
             )
 
     async def test_cross_tenant_draft_404(self, root: Path) -> None:
@@ -217,17 +261,27 @@ class TestRegenerate:
         session = fake_session(get=draft)
         with pytest.raises(NotFoundError):
             await crq.regenerate_from_draft(
-                session, draft_id=draft.id, tenant_id=TENANT, requested_by=USER,
-                parameter_overrides=None, definitions_root=root,
-                mentible=FakeMentible(), now=NOW,
+                session,
+                draft_id=draft.id,
+                tenant_id=TENANT,
+                requested_by=USER,
+                parameter_overrides=None,
+                definitions_root=root,
+                mentible=FakeMentible(),
+                now=NOW,
             )
 
 
 class TestListAndGet:
     async def test_list_returns_items_and_total(self) -> None:
         cr = ContentRequest(
-            id=uuid.uuid4(), tenant_id=TENANT, framework="fcpa", title="t",
-            status="requested", requested_by=USER, spec={},
+            id=uuid.uuid4(),
+            tenant_id=TENANT,
+            framework="fcpa",
+            title="t",
+            status="requested",
+            requested_by=USER,
+            spec={},
         )
         session = fake_session(execute=[_result(scalar=1), _result(rows=[cr])])
         items, total = await crq.list_requests(session, tenant_id=TENANT)
@@ -242,8 +296,13 @@ class TestListAndGet:
 
 def _request(status: str = "requested") -> ContentRequest:
     cr = ContentRequest(
-        id=uuid.uuid4(), tenant_id=TENANT, framework="fcpa", title="t",
-        status=status, requested_by=USER, spec={},
+        id=uuid.uuid4(),
+        tenant_id=TENANT,
+        framework="fcpa",
+        title="t",
+        status=status,
+        requested_by=USER,
+        spec={},
     )
     cr.course_id = cr.package_id = cr.draft_id = cr.regenerated_from_draft_id = None
     cr.archived_at = None
@@ -256,8 +315,12 @@ class TestLinkReceivedPackage:
         draft_id, pkg_id = uuid.uuid4(), uuid.uuid4()
         session = fake_session(get=cr, execute=[_result()])  # audit prev-hash
         out = await crq.link_received_package(
-            session, request_id=cr.id, tenant_id=TENANT,
-            draft_id=draft_id, package_id=pkg_id, now=NOW,
+            session,
+            request_id=cr.id,
+            tenant_id=TENANT,
+            draft_id=draft_id,
+            package_id=pkg_id,
+            now=NOW,
         )
         assert out is cr
         assert cr.status == ContentRequestStatus.RECEIVED.value
@@ -267,8 +330,12 @@ class TestLinkReceivedPackage:
     async def test_noop_when_request_missing(self) -> None:
         session = fake_session(get=None)
         out = await crq.link_received_package(
-            session, request_id=uuid.uuid4(), tenant_id=TENANT,
-            draft_id=uuid.uuid4(), package_id=uuid.uuid4(), now=NOW,
+            session,
+            request_id=uuid.uuid4(),
+            tenant_id=TENANT,
+            draft_id=uuid.uuid4(),
+            package_id=uuid.uuid4(),
+            now=NOW,
         )
         assert out is None
         session.add.assert_not_called()
@@ -277,8 +344,12 @@ class TestLinkReceivedPackage:
         cr = _request("published")
         session = fake_session(get=cr)
         out = await crq.link_received_package(
-            session, request_id=cr.id, tenant_id=TENANT,
-            draft_id=uuid.uuid4(), package_id=uuid.uuid4(), now=NOW,
+            session,
+            request_id=cr.id,
+            tenant_id=TENANT,
+            draft_id=uuid.uuid4(),
+            package_id=uuid.uuid4(),
+            now=NOW,
         )
         assert out is None
         assert cr.status == "published"
@@ -288,8 +359,12 @@ class TestLinkReceivedPackage:
         cr.tenant_id = uuid.uuid4()
         session = fake_session(get=cr)
         out = await crq.link_received_package(
-            session, request_id=cr.id, tenant_id=TENANT,
-            draft_id=uuid.uuid4(), package_id=uuid.uuid4(), now=NOW,
+            session,
+            request_id=cr.id,
+            tenant_id=TENANT,
+            draft_id=uuid.uuid4(),
+            package_id=uuid.uuid4(),
+            now=NOW,
         )
         assert out is None
 
@@ -301,8 +376,11 @@ class TestAdvanceForDraft:
         cr.draft_id = draft_id
         session = fake_session(execute=[_result(scalar=cr), _result()])
         out = await crq.advance_for_draft(
-            session, draft_id=draft_id, tenant_id=TENANT,
-            status=ContentRequestStatus.PUBLISHED, now=NOW,
+            session,
+            draft_id=draft_id,
+            tenant_id=TENANT,
+            status=ContentRequestStatus.PUBLISHED,
+            now=NOW,
         )
         assert out is cr
         assert cr.status == ContentRequestStatus.PUBLISHED.value
@@ -310,8 +388,11 @@ class TestAdvanceForDraft:
     async def test_noop_when_no_linked_request(self) -> None:
         session = fake_session(execute=[_result(scalar=None)])
         out = await crq.advance_for_draft(
-            session, draft_id=uuid.uuid4(), tenant_id=TENANT,
-            status=ContentRequestStatus.IN_REVIEW, now=NOW,
+            session,
+            draft_id=uuid.uuid4(),
+            tenant_id=TENANT,
+            status=ContentRequestStatus.IN_REVIEW,
+            now=NOW,
         )
         assert out is None
 
@@ -320,8 +401,11 @@ class TestAdvanceForDraft:
         cr.draft_id = uuid.uuid4()
         session = fake_session(execute=[_result(scalar=cr)])
         out = await crq.advance_for_draft(
-            session, draft_id=cr.draft_id, tenant_id=TENANT,
-            status=ContentRequestStatus.IN_REVIEW, now=NOW,
+            session,
+            draft_id=cr.draft_id,
+            tenant_id=TENANT,
+            status=ContentRequestStatus.IN_REVIEW,
+            now=NOW,
         )
         assert out is None
         assert cr.status == "published"

@@ -22,7 +22,6 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
-    Enum as SQLEnum,
     Float,
     ForeignKey,
     Index,
@@ -31,6 +30,9 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+)
+from sqlalchemy import (
+    Enum as SQLEnum,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -81,12 +83,8 @@ class Course(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
         index=True,
     )
 
-    cooldown_days: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=365
-    )
-    pass_threshold_pct: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=80
-    )
+    cooldown_days: Mapped[int] = mapped_column(Integer, nullable=False, default=365)
+    pass_threshold_pct: Mapped[int] = mapped_column(Integer, nullable=False, default=80)
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
 
     framework_tags: Mapped[list[str]] = mapped_column(
@@ -173,9 +171,7 @@ class CourseVersion(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         nullable=True,
         comment="S3 key of the uploaded video asset.",
     )
-    min_watch_pct: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0
-    )
+    min_watch_pct: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     is_active: Mapped[bool] = mapped_column(
         Boolean,
@@ -190,13 +186,9 @@ class CourseVersion(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
     __table_args__ = (
-        UniqueConstraint(
-            "course_id", "version_number", name="course_version_unique"
-        ),
+        UniqueConstraint("course_id", "version_number", name="course_version_unique"),
         CheckConstraint("version_number >= 1", name="version_number_min"),
-        CheckConstraint(
-            "min_watch_pct BETWEEN 0 AND 100", name="min_watch_pct_range"
-        ),
+        CheckConstraint("min_watch_pct BETWEEN 0 AND 100", name="min_watch_pct_range"),
         # At most one active version per course.
         Index(
             "ix_course_version_active",
@@ -206,15 +198,11 @@ class CourseVersion(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         ),
     )
 
-    course: Mapped[Course] = relationship(
-        back_populates="versions", foreign_keys=[course_id]
-    )
+    course: Mapped[Course] = relationship(back_populates="versions", foreign_keys=[course_id])
     questions: Mapped[list[Question]] = relationship(
         back_populates="course_version", cascade="all, delete-orphan"
     )
-    assignments: Mapped[list[Assignment]] = relationship(
-        back_populates="course_version"
-    )
+    assignments: Mapped[list[Assignment]] = relationship(back_populates="course_version")
 
 
 # ---------------------------------------------------------------------------
@@ -244,21 +232,15 @@ class Question(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     weight: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
-    __table_args__ = (
-        CheckConstraint("weight > 0", name="weight_positive"),
-    )
+    __table_args__ = (CheckConstraint("weight > 0", name="weight_positive"),)
 
-    course_version: Mapped[CourseVersion] = relationship(
-        back_populates="questions"
-    )
+    course_version: Mapped[CourseVersion] = relationship(back_populates="questions")
     options: Mapped[list[AnswerOption]] = relationship(
         back_populates="question",
         cascade="all, delete-orphan",
         order_by="AnswerOption.display_order",
     )
-    attempt_answers: Mapped[list[AttemptAnswer]] = relationship(
-        back_populates="question"
-    )
+    attempt_answers: Mapped[list[AttemptAnswer]] = relationship(back_populates="question")
 
 
 # ---------------------------------------------------------------------------
@@ -286,9 +268,7 @@ class AnswerOption(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     __table_args__ = (
-        UniqueConstraint(
-            "question_id", "display_order", name="answer_option_order_unique"
-        ),
+        UniqueConstraint("question_id", "display_order", name="answer_option_order_unique"),
     )
 
     question: Mapped[Question] = relationship(back_populates="options")

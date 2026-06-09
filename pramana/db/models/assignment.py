@@ -2,7 +2,7 @@
 
 Tables:
 
-- :class:`Assignment` — user × course-version, with lifecycle state
+- :class:`Assignment` — user x course-version, with lifecycle state
 - :class:`Attempt` — single quiz attempt; up to ``max_attempts`` per assignment
 - :class:`AttemptAnswer` — selected option(s) per question per attempt
 - :class:`Certificate` — issued upon ``PASSED`` assignment
@@ -23,7 +23,6 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
-    Enum as SQLEnum,
     Float,
     ForeignKey,
     Index,
@@ -32,6 +31,9 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+)
+from sqlalchemy import (
+    Enum as SQLEnum,
 )
 from sqlalchemy.dialects.postgresql import INET, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -91,9 +93,7 @@ class Assignment(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         ForeignKey("user_account.user_id", ondelete="SET NULL"),
         nullable=True,
     )
-    due_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     status: Mapped[str] = mapped_column(
         SQLEnum(
@@ -104,9 +104,7 @@ class Assignment(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         default=AssignmentStatus.ASSIGNED.value,
     )
 
-    attempts_used: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0
-    )
+    attempts_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_attempts: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -120,9 +118,7 @@ class Assignment(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         comment="Snapshotted from Course.cooldown_days at creation time.",
     )
 
-    terminal_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    terminal_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     terminal_reason: Mapped[str | None] = mapped_column(
         SQLEnum(
             *[r.value for r in TerminalReason],
@@ -130,9 +126,7 @@ class Assignment(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         ),
         nullable=True,
     )
-    cooldown_until: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    cooldown_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         CheckConstraint(
@@ -143,8 +137,7 @@ class Assignment(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         CheckConstraint("cooldown_days >= 0", name="cooldown_days_nonneg"),
         # terminal_at is set iff status is terminal (mirrors the domain invariant).
         CheckConstraint(
-            "(status IN ('passed','blocked','cancelled','expired')) "
-            "= (terminal_at IS NOT NULL)",
+            "(status IN ('passed','blocked','cancelled','expired')) = (terminal_at IS NOT NULL)",
             name="terminal_at_consistent",
         ),
         # cooldown_until is set iff status started cooldown (PASSED or BLOCKED).
@@ -157,13 +150,9 @@ class Assignment(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Index("ix_assignment_due_at", "due_at"),
     )
 
-    user: Mapped[User] = relationship(
-        back_populates="assignments", foreign_keys=[user_id]
-    )
+    user: Mapped[User] = relationship(back_populates="assignments", foreign_keys=[user_id])
     course: Mapped[Course] = relationship(back_populates="assignments")
-    course_version: Mapped[CourseVersion] = relationship(
-        back_populates="assignments"
-    )
+    course_version: Mapped[CourseVersion] = relationship(back_populates="assignments")
     attempts: Mapped[list[Attempt]] = relationship(
         back_populates="assignment", cascade="all, delete-orphan"
     )
@@ -199,9 +188,7 @@ class Attempt(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    submitted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     score_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     outcome: Mapped[str] = mapped_column(
@@ -211,14 +198,10 @@ class Attempt(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
     total_active_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    attestation_accepted: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False
-    )
+    attestation_accepted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     __table_args__ = (
-        UniqueConstraint(
-            "assignment_id", "attempt_number", name="attempt_number_unique"
-        ),
+        UniqueConstraint("assignment_id", "attempt_number", name="attempt_number_unique"),
         CheckConstraint("attempt_number >= 1", name="attempt_number_min"),
         CheckConstraint(
             "score_pct IS NULL OR (score_pct BETWEEN 0 AND 100)",
@@ -264,18 +247,12 @@ class AttemptAnswer(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         server_default="{}",
     )
     is_correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    time_spent_seconds: Mapped[int | None] = mapped_column(
-        Integer, nullable=True
-    )
+    time_spent_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     answered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    __table_args__ = (
-        UniqueConstraint(
-            "attempt_id", "question_id", name="attempt_answer_unique"
-        ),
-    )
+    __table_args__ = (UniqueConstraint("attempt_id", "question_id", name="attempt_answer_unique"),)
 
     attempt: Mapped[Attempt] = relationship(back_populates="answers")
     question: Mapped[Question] = relationship(back_populates="attempt_answers")
@@ -330,12 +307,8 @@ class Certificate(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     issued_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    verification_code: Mapped[str] = mapped_column(
-        String(32), nullable=False, unique=True
-    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    verification_code: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
 
     pdf_object_key: Mapped[str | None] = mapped_column(
         String(500),
@@ -344,20 +317,12 @@ class Certificate(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
     # Attestation evidence
-    attestation_text_version: Mapped[str] = mapped_column(
-        String(50), nullable=False
-    )
+    attestation_text_version: Mapped[str] = mapped_column(String(50), nullable=False)
     attestation_ip: Mapped[str | None] = mapped_column(INET, nullable=True)
-    attestation_user_agent: Mapped[str | None] = mapped_column(
-        Text, nullable=True
-    )
-    attestation_timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    attestation_user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attestation_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    __table_args__ = (
-        Index("ix_certificate_user_issued", "user_id", "issued_at"),
-    )
+    __table_args__ = (Index("ix_certificate_user_issued", "user_id", "issued_at"),)
 
     user: Mapped[User] = relationship(back_populates="certificates")
     assignment: Mapped[Assignment] = relationship(back_populates="certificate")

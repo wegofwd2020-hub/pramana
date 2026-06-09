@@ -356,7 +356,7 @@ def _require_int(
         )
     if (minimum is not None and value < minimum) or (maximum is not None and value > maximum):
         raise PackageValidationError(
-            f"field {field_name!r} out of range " f"[{minimum}, {maximum}]: {value}",
+            f"field {field_name!r} out of range [{minimum}, {maximum}]: {value}",
             context={"field": field_name, "value": value},
         )
     return value

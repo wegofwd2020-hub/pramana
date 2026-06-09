@@ -41,9 +41,7 @@ class TestSettings:
         assert settings.default_max_attempts == 2
         assert settings.default_record_retention_years == 7
 
-    def test_pass_threshold_rejects_out_of_range(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_pass_threshold_rejects_out_of_range(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Values outside 0..100 are rejected at parse time."""
         monkeypatch.setenv("DEFAULT_PASS_THRESHOLD_PCT", "150")
         monkeypatch.setenv("SECRET_KEY", "x")

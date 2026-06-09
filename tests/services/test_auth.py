@@ -8,7 +8,7 @@ is identical.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -28,7 +28,7 @@ from pramana.services.auth import (
 SECRET = "test-oidc-secret"
 ISSUER = "https://idp.example.com"
 AUD = "pramana"
-NOW = datetime(2026, 6, 7, 14, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 6, 7, 14, 0, tzinfo=UTC)
 
 
 class StaticKeySource:
@@ -40,7 +40,7 @@ class StaticKeySource:
 
 
 def make_token(*, secret=SECRET, aud=AUD, iss=ISSUER, sub="sub-123", exp_delta=3600):
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     claims = {
         "sub": sub,
         "aud": aud,
