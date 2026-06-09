@@ -40,6 +40,10 @@ dependencies = [
     "redis>=5.1.0",
     # Logging
     "structlog>=24.4.0",
+    # In-process LLM generation seam (ADR-013): Pramana drafts text-first
+    # compliance content (quiz items, …) through the shared provider library.
+    # Library, not a service — runs in-process; managed keys passed per call.
+    "wegofwd-llm[anthropic] @ git+https://github.com/wegofwd2020-hub/wegofwd-llm@v0.1.1",
     # Object storage
     "boto3>=1.35.0",
     # PDF generation (for certificates, used in later phases)

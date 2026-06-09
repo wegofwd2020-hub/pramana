@@ -109,6 +109,36 @@ def resolves(root: Path, *, framework: str, clause: str, ref: str | None) -> boo
     return anchor in _anchors(path)
 
 
+def clause_text(root: Path, *, framework: str, clause: str, ref: str | None = None) -> str:
+    """Return the prose body of a clause — the input for in-process generation.
+
+    Resolves the clause's heading anchor (the fragment of ``ref`` when present,
+    else the slug of ``clause``) and returns the text between that heading and
+    the next heading of the same or higher level, code fences excluded. This is
+    the source material a generator (ADR-013) drafts a quiz / summary *from*, so
+    every claim it makes is grounded in the definitions library — Pramana's
+    source of truth — not the model's parametric memory.
+
+    Raises:
+        NotFoundError: No ``framework_<framework>.md`` doc, or the anchor does
+            not resolve to a heading in it.
+    """
+    path = _doc_path(root, framework)
+    if not path.is_file():
+        raise NotFoundError(
+            "framework not found in definitions library",
+            context={"framework": framework},
+        )
+    anchor = _fragment(ref) if ref else slugify(clause)
+    body = _section_body(path, anchor)
+    if body is None:
+        raise NotFoundError(
+            "clause anchor not found in framework doc",
+            context={"framework": framework, "clause": clause, "anchor": anchor},
+        )
+    return body
+
+
 def validate_request_clauses(root: Path, request: PackageRequest) -> None:
     """Enforce AC4 — every cited clause must resolve, else the request is rejected.
 
@@ -158,6 +188,45 @@ def _headings(path: Path) -> tuple[tuple[int, str], ...]:
 
 def _anchors(path: Path) -> frozenset[str]:
     return frozenset(slugify(title) for _, title in _headings(path))
+
+
+@lru_cache(maxsize=64)
+def _sections(path: Path) -> dict[str, str]:
+    """Map each heading's slug → the prose body beneath it (memoised).
+
+    A section runs from its heading to the next heading of the same or higher
+    level. Code fences are preserved verbatim in the body but their ``#`` lines
+    never count as headings. Cached at the I/O boundary like :func:`_headings`.
+    """
+    sections: dict[str, str] = {}
+    stack: list[tuple[int, str, list[str]]] = []  # (level, slug, body lines)
+
+    def _close(down_to_level: int) -> None:
+        while stack and stack[-1][0] >= down_to_level:
+            _level, slug, lines = stack.pop()
+            sections[slug] = "\n".join(lines).strip()
+
+    in_code = False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.lstrip().startswith("```"):
+            in_code = not in_code
+            if stack:
+                stack[-1][2].append(line)
+            continue
+        m = None if in_code else _HEADING_RE.match(line)
+        if m:
+            level = len(m.group(1))
+            _close(level)
+            stack.append((level, slugify(m.group(2)), []))
+        elif stack:
+            stack[-1][2].append(line)
+    _close(0)
+    return sections
+
+
+def _section_body(path: Path, anchor: str) -> str | None:
+    """Prose body under the heading whose slug is ``anchor`` (``None`` if absent)."""
+    return _sections(path).get(anchor)
 
 
 def _title_of(path: Path) -> str | None:
