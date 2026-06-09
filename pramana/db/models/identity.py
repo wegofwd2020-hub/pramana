@@ -21,11 +21,13 @@ from typing import TYPE_CHECKING
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
-    Enum as SQLEnum,
     ForeignKey,
     Index,
     String,
     UniqueConstraint,
+)
+from sqlalchemy import (
+    Enum as SQLEnum,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -34,9 +36,8 @@ from pramana.db.base import Base
 from pramana.db.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
-    from pramana.db.models.assignment import Assignment, Attempt, Certificate
-    from pramana.db.models.audit import AuditLog
-    from pramana.db.models.course import Course, CourseVersion
+    from pramana.db.models.assignment import Assignment, Certificate
+    from pramana.db.models.course import Course
 
 
 # ---------------------------------------------------------------------------
@@ -101,9 +102,7 @@ class Tenant(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     name: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
     short_code: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
 
-    users: Mapped[list[User]] = relationship(
-        back_populates="tenant", cascade="all, delete-orphan"
-    )
+    users: Mapped[list[User]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
 
 
 # ---------------------------------------------------------------------------
@@ -271,11 +270,7 @@ class UserRole(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         nullable=True,
     )
 
-    __table_args__ = (
-        UniqueConstraint("user_id", "role_id", name="user_role_unique"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "role_id", name="user_role_unique"),)
 
-    user: Mapped[User] = relationship(
-        back_populates="role_assignments", foreign_keys=[user_id]
-    )
+    user: Mapped[User] = relationship(back_populates="role_assignments", foreign_keys=[user_id])
     role: Mapped[Role] = relationship(back_populates="user_assignments")

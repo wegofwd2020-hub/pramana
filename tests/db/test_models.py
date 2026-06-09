@@ -10,8 +10,8 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import inspect
 
-from pramana.db.base import Base
 from pramana.db import models
+from pramana.db.base import Base
 from pramana.db.models import (
     AnswerOption,
     Assignment,
@@ -28,7 +28,6 @@ from pramana.db.models import (
     UserRole,
 )
 
-
 EXPECTED_TABLES: set[str] = {
     "tenant",
     "user_account",
@@ -36,6 +35,8 @@ EXPECTED_TABLES: set[str] = {
     "user_role",
     "course",
     "course_version",
+    "content_draft",
+    "content_request",
     "question",
     "answer_option",
     "assignment",
@@ -52,8 +53,7 @@ class TestMetadataRegistration:
     def test_all_expected_tables_registered(self) -> None:
         registered = set(Base.metadata.tables.keys())
         assert registered == EXPECTED_TABLES, (
-            f"missing: {EXPECTED_TABLES - registered}, "
-            f"extra: {registered - EXPECTED_TABLES}"
+            f"missing: {EXPECTED_TABLES - registered}, extra: {registered - EXPECTED_TABLES}"
         )
 
     def test_models_module_exports_all_entities(self) -> None:
@@ -97,9 +97,7 @@ class TestPrimaryKeys:
             (AuditLog, "audit_id"),
         ],
     )
-    def test_primary_key_column_present(
-        self, model: type, pk_name: str
-    ) -> None:
+    def test_primary_key_column_present(self, model: type, pk_name: str) -> None:
         pk_columns = inspect(model).primary_key
         assert len(pk_columns) == 1
         assert pk_columns[0].name == pk_name
@@ -109,32 +107,22 @@ class TestForeignKeys:
     """Critical foreign-key relationships exist with the right ON DELETE."""
 
     def test_user_tenant_fk_restrict(self) -> None:
-        fk = next(
-            fk for fk in User.__table__.foreign_keys
-            if fk.column.table.name == "tenant"
-        )
+        fk = next(fk for fk in User.__table__.foreign_keys if fk.column.table.name == "tenant")
         assert fk.ondelete == "RESTRICT"
 
     def test_assignment_user_fk_restrict(self) -> None:
         """Assignments must not be silently deleted with a user (compliance)."""
-        fk = next(
-            fk for fk in Assignment.__table__.foreign_keys
-            if fk.parent.name == "user_id"
-        )
+        fk = next(fk for fk in Assignment.__table__.foreign_keys if fk.parent.name == "user_id")
         assert fk.ondelete == "RESTRICT"
 
     def test_attempt_assignment_fk_cascade(self) -> None:
         """Cascading attempt deletion is fine — they're never deleted in practice."""
-        fk = next(
-            fk for fk in Attempt.__table__.foreign_keys
-            if fk.parent.name == "assignment_id"
-        )
+        fk = next(fk for fk in Attempt.__table__.foreign_keys if fk.parent.name == "assignment_id")
         assert fk.ondelete == "CASCADE"
 
     def test_certificate_assignment_fk_restrict(self) -> None:
         fk = next(
-            fk for fk in Certificate.__table__.foreign_keys
-            if fk.parent.name == "assignment_id"
+            fk for fk in Certificate.__table__.foreign_keys if fk.parent.name == "assignment_id"
         )
         assert fk.ondelete == "RESTRICT"
 
@@ -156,9 +144,7 @@ class TestUniqueConstraints:
 
     def test_certificate_assignment_unique(self) -> None:
         # One certificate per assignment.
-        unique_columns = [
-            c for c in Certificate.__table__.columns if c.unique
-        ]
+        unique_columns = [c for c in Certificate.__table__.columns if c.unique]
         assert any(c.name == "assignment_id" for c in unique_columns) or any(
             "assignment_id" in [col.name for col in c.columns]
             for c in Certificate.__table__.constraints
@@ -259,12 +245,7 @@ class TestAlembicBaselineExists:
         import importlib.util
         from pathlib import Path
 
-        baseline = (
-            Path(__file__).resolve().parents[2]
-            / "alembic"
-            / "versions"
-            / "0001_initial.py"
-        )
+        baseline = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "0001_initial.py"
         assert baseline.exists(), "Baseline migration is missing"
 
         spec = importlib.util.spec_from_file_location("baseline", baseline)

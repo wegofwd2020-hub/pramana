@@ -34,6 +34,7 @@ dependencies = [
     # Auth
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
+    "httpx>=0.27.0",  # OIDC JWKS discovery (runtime)
     # Background jobs
     "celery[redis]>=5.4.0",
     "redis>=5.1.0",
@@ -109,7 +110,10 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["ANN", "S105", "S106"]  # Tests can be looser on annotations & hardcoded "passwords"
+# Tests are looser on annotations & hardcoded "passwords"; and on a few
+# style/safety lints that are noise in fixtures: fixed naive datetimes (DTZ),
+# broad/compound assertions in pytest.raises (PT011/PT018/B017).
+"tests/**/*.py" = ["ANN", "S105", "S106", "DTZ", "PT011", "PT018", "B017"]
 "alembic/env.py" = ["ANN", "E501"]
 
 [tool.ruff.format]
@@ -163,6 +167,10 @@ markers = [
 filterwarnings = [
     "error",
     "ignore::DeprecationWarning:passlib.*",
+    # starlette>=1.2 deprecates httpx in its TestClient (suggests httpx2); the
+    # warning fires on import of fastapi/starlette TestClient — third-party, not
+    # our code. Re-evaluate when migrating the test client to httpx2.
+    "ignore::starlette.exceptions.StarletteDeprecationWarning",
 ]
 
 # ----------------------------------------------------------------------------

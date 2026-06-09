@@ -20,6 +20,26 @@ Three rules drive training requirements:
 
 HIPAA applies to **Covered Entities** (healthcare providers, health plans, healthcare clearinghouses) and **Business Associates** (vendors that handle PHI on behalf of Covered Entities).
 
+Unlike SOX/FCPA, HIPAA **explicitly requires training** — which makes its citable
+rules the source for commissioned content.
+
+### Citable rules
+
+Stable clause anchors cited by HIPAA training content's `source_definitions`:
+
+#### Privacy Rule
+45 CFR §164.530(b) — train all workforce members on PHI policies and procedures.
+
+#### Security Rule
+45 CFR §164.308(a)(5) — maintain a security awareness and training **program**
+(security reminders, malware protection, log-in monitoring, password management).
+
+#### Breach Notification Rule
+45 CFR §164.400-414 — recognise and report breaches; notification recipients and the 60-day timeline.
+
+#### Business Associates
+Vendors handling PHI on a Covered Entity's behalf, bound by a Business Associate Agreement and the Security Rule.
+
 ---
 
 ## 2. Why It Matters for Compliance Training Systems

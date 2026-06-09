@@ -1,0 +1,58 @@
+// Package Request — FCPA anti-bribery core content.
+//
+// Converts the *content slice* of US-FCPA-0001/0002/0003 into a single Mentible
+// generation requirement. The assignment / tracking / certificate / dashboard
+// acceptance criteria of those stories stay in Pramana — only the modules + quiz
+// below are Mentible's job. See ../../_templates/package-request.md for the schema
+// and the request→manifest mapping.
+{
+  "request_id": "00000000-0000-0000-0000-00000000fcpa",
+  "requested_by": "compliance-sme@customer.example",
+  "framework": "fcpa",
+  "title": "FCPA Anti-Bribery for At-Risk Roles",
+
+  "scope": {
+    "personas": ["employee"],
+    "risk_tier": "high",
+    "industries": ["cross-industry"]
+  },
+
+  // WHAT to cover — every ref resolves to an anchor in the definitions library
+  // (docs/frameworks/framework_fcpa.md). These become the manifest's
+  // source_definitions and the per-section citations a reviewer verifies against.
+  "source_definitions": [
+    { "framework": "fcpa", "clause": "anti-bribery",
+      "ref": "docs/frameworks/framework_fcpa.md#anti-bribery" }
+  ],
+
+  // Becomes modules[]. Grouped so one package serves three stories.
+  "learning_objectives": [
+    // US-FCPA-0001 — anti-bribery fundamentals
+    "Define a 'foreign official' (incl. state-owned-enterprise staff) and 'anything of value'",
+    "Explain the 'corruptly, to obtain or retain business' standard",
+    // US-FCPA-0002 — gifts, travel & hospitality
+    "Apply company policy to gifts, travel, and hospitality through realistic scenarios",
+    // US-FCPA-0003 — third-party / intermediary risk
+    "Identify third-party / intermediary red flags and the 'knew or should have known' standard"
+  ],
+
+  // Becomes quiz{}. Scenario-based so it exercises judgement, not recall
+  // (US-FCPA-0002 AC1). pass_threshold_pct must match the Pramana course threshold.
+  "assessment": {
+    "required": true,
+    "pass_threshold_pct": 80,
+    "min_questions": 8,
+    "style": "scenario-based"
+  },
+
+  "constraints": {
+    "every_claim_cited": true,
+    "length_minutes": 20,
+    "reading_level": "general-staff"
+  },
+
+  "deliverables": ["epub3", "pdf"],
+  "visuals": ["animated_svg"],
+
+  "satisfies_stories": ["US-FCPA-0001", "US-FCPA-0002", "US-FCPA-0003"]
+}

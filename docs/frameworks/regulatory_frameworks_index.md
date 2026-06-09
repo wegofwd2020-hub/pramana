@@ -20,6 +20,7 @@ This index helps decide which framework support to prioritize and surfaces desig
 | Framework | Status (v1) | Document |
 |---|---|---|
 | **SOX (Sarbanes-Oxley)** | ✅ In scope for v1 | `framework_sox.md` |
+| **FCPA (Foreign Corrupt Practices Act)** | 🚧 Candidate (user-story backlog) | `framework_fcpa.md` |
 | **HIPAA** | ⏳ Future phase | `framework_hipaa.md` |
 | **GDPR** | ⏳ Future phase | `framework_gdpr.md` |
 | **ISO 27001** | ⏳ Future phase | `framework_iso27001.md` |
@@ -44,6 +45,7 @@ Each document follows an identical structure for ease of comparison:
 | Framework | Applies When… |
 |---|---|
 | **SOX** | Customer is a US public company or files with the SEC. Training is required to demonstrate Section 404 internal controls. |
+| **FCPA** | Customer is a US issuer/domestic concern (or a foreign party acting in US territory) that does business abroad or interacts with foreign officials/third parties. Issuers also carry the books-&-records + internal-controls (accounting) pillar. |
 | **HIPAA** | Customer is a Covered Entity (healthcare provider, health plan, clearinghouse) or a Business Associate handling PHI. |
 | **GDPR** | Customer processes personal data of EU/EEA residents, regardless of where the customer is located. |
 | **ISO 27001** | Customer is pursuing or maintains ISO 27001 certification. Often a contractual requirement for B2B customers. |

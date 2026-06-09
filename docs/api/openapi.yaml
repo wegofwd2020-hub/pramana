@@ -11,6 +11,11 @@ info:
     customer's IdP. All endpoints require authentication unless noted as
     `[Public]`.
 
+    The **content pipeline** — commission a Package Request → Mentible
+    manufactures a Consumable Package → Pramana ingests, a human approves, and
+    it publishes to an immutable course version — is defined by
+    `docs/03_ai_drafted_human_approved_content.md` and Mentible **ADR-011**.
+
     See `docs/02_resolved_decisions.md` for the canonical specification this
     API implements.
   contact:
@@ -46,6 +51,16 @@ tags:
     description: Audit log search (Auditor / Compliance Admin)
   - name: Exports
     description: Auditor evidence exports
+  - name: Frameworks
+    description: Definitions library — frameworks and clause anchors (the "law" picker)
+  - name: ContentRequests
+    description: Commission training content from a regulation (Package Request → Mentible)
+  - name: ConsumerLibrary
+    description: Inbound Consumable Package ingestion from Mentible (ADR-011)
+  - name: ContentDrafts
+    description: AI-drafted content review, approval, and publish (the human gate)
+  - name: Player
+    description: Course playback and watch-progress tracking
 
 security:
   - BearerAuth: []
@@ -1158,6 +1173,501 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  # ---------------------------------------------------------------------------
+  # Frameworks (the "law" picker — definitions library feed for commissioning)
+  # ---------------------------------------------------------------------------
+  /frameworks:
+    get:
+      tags: [Frameworks]
+      summary: List frameworks in the definitions library
+      description: |
+        Feeds the commissioning UI's framework picker (US-PLATFORM-0003). Source
+        of truth is `docs/frameworks/*` — Pramana owns the definitions (ADR-011 §1).
+      responses:
+        "200":
+          description: Frameworks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Framework"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /frameworks/{framework}/clauses:
+    parameters:
+      - $ref: "#/components/parameters/FrameworkSlug"
+    get:
+      tags: [Frameworks]
+      summary: List a framework's clause anchors
+      description: |
+        The selectable clauses (e.g. `#anti-bribery`) that become a Package
+        Request's `source_definitions`. A request referencing a clause that does
+        not appear here cannot be submitted.
+      responses:
+        "200":
+          description: Clauses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FrameworkClause"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ---------------------------------------------------------------------------
+  # Content Requests (Create phase — commission content, Package Request → Mentible)
+  # ---------------------------------------------------------------------------
+  /content-requests:
+    get:
+      tags: [ContentRequests]
+      summary: List content (package) requests
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - name: framework
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/ContentRequestStatus"
+      responses:
+        "200":
+          description: Page of content requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentRequestPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [ContentRequests]
+      summary: Commission content — create a Package Request and push to Mentible
+      description: |
+        Builds a Package Request (the spec side of the ADR-011 manifest) and pushes
+        it to Mentible. Requires `ContentAuthor` / `ComplianceAdmin`. Every
+        `source_definitions[].ref` must resolve to a real clause anchor in the
+        definitions library, else 422. `requested_by` is taken from the caller for
+        audit. See US-PLATFORM-0003.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContentRequestCreate"
+      responses:
+        "202":
+          description: Request accepted and pushed to Mentible
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentRequest"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: A referenced clause does not resolve in the definitions library
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /content-requests/{request_id}:
+    parameters:
+      - $ref: "#/components/parameters/ContentRequestId"
+    get:
+      tags: [ContentRequests]
+      summary: Get a content request (and its status)
+      responses:
+        "200":
+          description: Content request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ---------------------------------------------------------------------------
+  # Consumer Library (inbound from Mentible — the ADR-011 ingestion endpoint)
+  # ---------------------------------------------------------------------------
+  /consumer-library/packages:
+    post:
+      tags: [ConsumerLibrary]
+      summary: Ingest a pushed Consumable Package (Mentible → Pramana)
+      description: |
+        One-way push (ADR-011 §6). Machine-to-machine: the caller is Mentible
+        (service credential). Pramana verifies the manifest **signature** and
+        **content_hash**; on success it records an untrusted `RECEIVED`
+        `ContentDraft` (idempotent on `(tenant_id, package_id, package_version)`).
+        A verification failure quarantines the package (422) — it is never silently
+        published. Implemented by `pramana/services/consumer_library.py`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngestPackageRequest"
+      responses:
+        "201":
+          description: Package accepted as a RECEIVED draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestPackageResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Target course/tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: This (package_id, package_version) was already ingested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Malformed manifest, or signature/content_hash failed (quarantined)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ---------------------------------------------------------------------------
+  # Content Drafts (Approve phase — the human review/approval gate)
+  # ---------------------------------------------------------------------------
+  /content-drafts:
+    get:
+      tags: [ContentDrafts]
+      summary: List content drafts (the review queue)
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/ContentDraftStatus"
+        - name: framework
+          in: query
+          schema:
+            type: string
+        - name: quarantined
+          in: query
+          description: When true, return only packages that failed verification.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Page of drafts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentDraftPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /content-drafts/{draft_id}:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    get:
+      tags: [ContentDrafts]
+      summary: Get a draft for review (preview payload)
+      description: |
+        Returns the full review payload: modules + quiz + per-claim citations,
+        provenance, the signature/content_hash verification result, and artifact
+        references. Used by the review screen (US-PLATFORM-0004).
+      responses:
+        "200":
+          description: Draft detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentDraftDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /content-drafts/{draft_id}/submit-for-review:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    post:
+      tags: [ContentDrafts]
+      summary: Open a draft for review
+      description: Transition `RECEIVED`/`DRAFT` → `IN_REVIEW`.
+      responses:
+        "200":
+          description: Draft in review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentDraft"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Not in a pre-review state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /content-drafts/{draft_id}/approve:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    post:
+      tags: [ContentDrafts]
+      summary: Approve a draft (attestation + separation of duties)
+      description: |
+        Transition `IN_REVIEW` → `APPROVED`. The approver **must not** be the
+        draft's requester/generator (separation of duties → 409). Captures an
+        attestation and freezes the content hash. See US-FCPA-0005 / US-PLATFORM-0004.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveRequest"
+      responses:
+        "200":
+          description: Draft approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentDraft"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Not in review, or separation-of-duties violation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /content-drafts/{draft_id}/request-changes:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    post:
+      tags: [ContentDrafts]
+      summary: Request changes on a draft
+      description: Transition `IN_REVIEW` → `DRAFT`/`RECEIVED` with reviewer notes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewNotes"
+      responses:
+        "200":
+          description: Changes requested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentDraft"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Not in review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /content-drafts/{draft_id}/reject:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    post:
+      tags: [ContentDrafts]
+      summary: Reject a draft (terminal)
+      description: Transition `IN_REVIEW` → `REJECTED`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewNotes"
+      responses:
+        "200":
+          description: Draft rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentDraft"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Not in review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /content-drafts/{draft_id}/publish:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    post:
+      tags: [ContentDrafts]
+      summary: Publish an approved draft to an immutable course version
+      description: |
+        Transition `APPROVED` → `PUBLISHED`, materializing a `CourseVersion` that
+        becomes assignable. Returns the created version.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishRequest"
+      responses:
+        "201":
+          description: Published course version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CourseVersion"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Not in APPROVED state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /content-drafts/{draft_id}/regenerate:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    post:
+      tags: [ContentDrafts]
+      summary: Regenerate a draft with updated parameters
+      description: |
+        Re-issues the original Package Request (optionally with parameter overrides)
+        to Mentible; the returned package arrives as a **new `package_version`** that
+        supersedes this draft. Does not rewrite published versions or completion
+        records. Lineage handling tracks ADR-011 §10. See US-PLATFORM-0005.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegenerateRequest"
+      responses:
+        "202":
+          description: Regeneration request pushed to Mentible
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentRequest"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ---------------------------------------------------------------------------
+  # Player (Present phase — playback + watch-progress)
+  # ---------------------------------------------------------------------------
+  /assignments/{assignment_id}/player:
+    parameters:
+      - $ref: "#/components/parameters/AssignmentId"
+    get:
+      tags: [Player]
+      summary: Player manifest for an assigned course
+      description: |
+        Returns what the player needs for the assignment's pinned `CourseVersion`:
+        time-limited asset URLs (video/deck/animated visuals), the `min_watch_pct`
+        gate, current watch progress, and whether the quiz is unlocked. Only the
+        assignee (or an authorized manager) may fetch it. See US-PLATFORM-0002.
+      responses:
+        "200":
+          description: Player manifest
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlayerManifest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /assignments/{assignment_id}/progress:
+    parameters:
+      - $ref: "#/components/parameters/AssignmentId"
+    post:
+      tags: [Player]
+      summary: Record watch progress
+      description: |
+        Idempotent upsert of the learner's furthest watched position. When the
+        watched percentage reaches `min_watch_pct`, the response reports the quiz
+        as unlocked.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProgressUpdate"
+      responses:
+        "200":
+          description: Updated progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WatchProgress"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 # ===========================================================================
 # Components
 # ===========================================================================
@@ -1236,6 +1746,27 @@ components:
       schema:
         type: string
         format: uuid
+    ContentRequestId:
+      name: request_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DraftId:
+      name: draft_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    FrameworkSlug:
+      name: framework
+      in: path
+      required: true
+      schema:
+        type: string
+        example: fcpa
 
   responses:
     Unauthorized:
@@ -2085,3 +2616,518 @@ components:
             $ref: "#/components/schemas/AuditLogEntry"
         pagination:
           $ref: "#/components/schemas/Pagination"
+
+    # ----- Frameworks (definitions library) ----------------------------
+    Framework:
+      type: object
+      required: [code, name]
+      properties:
+        code:
+          type: string
+          example: fcpa
+        name:
+          type: string
+          example: Foreign Corrupt Practices Act
+        status:
+          type: string
+          example: candidate
+        doc:
+          type: string
+          example: docs/frameworks/framework_fcpa.md
+
+    FrameworkClause:
+      type: object
+      required: [clause, ref]
+      properties:
+        clause:
+          type: string
+          example: anti-bribery
+        title:
+          type: string
+          example: Anti-bribery
+        ref:
+          type: string
+          description: Stable anchor in the framework doc; cited by source_definitions.
+          example: docs/frameworks/framework_fcpa.md#anti-bribery
+
+    # ----- Content Requests (Package Request → Mentible) ----------------
+    SourceDefinition:
+      type: object
+      required: [framework, clause]
+      properties:
+        framework:
+          type: string
+          example: fcpa
+        clause:
+          type: string
+          example: anti-bribery
+        ref:
+          type: string
+          example: docs/frameworks/framework_fcpa.md#anti-bribery
+
+    RequestScope:
+      type: object
+      properties:
+        personas:
+          type: array
+          items:
+            type: string
+          example: [employee]
+        risk_tier:
+          type: string
+          enum: [low, medium, high]
+        industries:
+          type: array
+          items:
+            type: string
+
+    Assessment:
+      type: object
+      required: [pass_threshold_pct]
+      properties:
+        required:
+          type: boolean
+          default: true
+        pass_threshold_pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+          default: 80
+        min_questions:
+          type: integer
+          minimum: 1
+        style:
+          type: string
+          enum: [scenario-based, recall]
+          default: scenario-based
+
+    RequestConstraints:
+      type: object
+      properties:
+        every_claim_cited:
+          type: boolean
+          default: true
+        length_minutes:
+          type: integer
+          minimum: 1
+        reading_level:
+          type: string
+        language:
+          type: string
+          default: en
+
+    ContentRequestStatus:
+      type: string
+      enum: [requested, generating, received, in_review, published, failed]
+
+    ContentRequestCreate:
+      type: object
+      required: [framework, title, source_definitions, assessment]
+      properties:
+        framework:
+          type: string
+          example: fcpa
+        title:
+          type: string
+        course_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Target course lineage; omit to create a new course.
+        scope:
+          $ref: "#/components/schemas/RequestScope"
+        source_definitions:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/SourceDefinition"
+        learning_objectives:
+          type: array
+          items:
+            type: string
+        assessment:
+          $ref: "#/components/schemas/Assessment"
+        constraints:
+          $ref: "#/components/schemas/RequestConstraints"
+        deliverables:
+          type: array
+          items:
+            type: string
+            enum: [epub3, pdf, mp4]
+        visuals:
+          type: array
+          items:
+            type: string
+            enum: [animated_svg]
+        satisfies_stories:
+          type: array
+          items:
+            type: string
+            example: US-FCPA-0001
+
+    ContentRequest:
+      type: object
+      required: [request_id, framework, title, status, requested_by, created_at]
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        framework:
+          type: string
+        title:
+          type: string
+        status:
+          $ref: "#/components/schemas/ContentRequestStatus"
+        requested_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        package_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Set once Mentible returns a package.
+        draft_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: The ContentDraft created on ingestion.
+        satisfies_stories:
+          type: array
+          items:
+            type: string
+
+    ContentRequestPage:
+      type: object
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentRequest"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    # ----- Consumable Package (inbound from Mentible, ADR-011 §4) -------
+    Provenance:
+      type: object
+      required: [engine, model, provider, prompt_version, generated_at]
+      properties:
+        engine:
+          type: string
+          example: mentible
+        model:
+          type: string
+          example: claude-sonnet-4-6
+        provider:
+          type: string
+          example: anthropic
+        prompt_version:
+          type: string
+          example: psai-2026-06
+        generated_at:
+          type: string
+          format: date-time
+
+    ConsumablePackageManifest:
+      type: object
+      description: The Mentible Consumable Package manifest (ADR-011 §4).
+      required:
+        [
+          package_id,
+          package_version,
+          title,
+          frameworks,
+          source_definitions,
+          provenance,
+          content_hash,
+          modules,
+          quiz,
+          signature,
+        ]
+      properties:
+        package_id:
+          type: string
+          format: uuid
+        package_version:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+        frameworks:
+          type: array
+          items:
+            type: string
+        source_definitions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceDefinition"
+        provenance:
+          $ref: "#/components/schemas/Provenance"
+        content_hash:
+          type: string
+          example: "sha256:e3b0c44298fc1c149afbf4c8996fb924..."
+        modules:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        quiz:
+          type: object
+          additionalProperties: true
+        assets:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        artifacts:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        signature:
+          type: string
+
+    IngestPackageRequest:
+      type: object
+      required: [tenant_id, course_id, manifest]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        manifest:
+          $ref: "#/components/schemas/ConsumablePackageManifest"
+
+    IngestPackageResult:
+      type: object
+      required: [draft_id, status, package_id, package_version]
+      properties:
+        draft_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/ContentDraftStatus"
+        package_id:
+          type: string
+          format: uuid
+        package_version:
+          type: integer
+
+    # ----- Content Drafts (the approval gate) --------------------------
+    ContentDraftStatus:
+      type: string
+      enum: [received, draft, in_review, approved, published, rejected]
+
+    VerificationResult:
+      type: object
+      required: [signature_ok, content_hash_ok]
+      properties:
+        signature_ok:
+          type: boolean
+        content_hash_ok:
+          type: boolean
+        quarantined:
+          type: boolean
+          description: True if verification failed; the draft is not publishable.
+
+    ContentDraft:
+      type: object
+      required: [draft_id, status, title, framework]
+      properties:
+        draft_id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          $ref: "#/components/schemas/ContentDraftStatus"
+        title:
+          type: string
+        framework:
+          type: string
+        package_id:
+          type: string
+          format: uuid
+          nullable: true
+        package_version:
+          type: integer
+          nullable: true
+        verified:
+          type: boolean
+          description: Signature + content_hash verified on ingest.
+        created_at:
+          type: string
+          format: date-time
+
+    ContentDraftDetail:
+      allOf:
+        - $ref: "#/components/schemas/ContentDraft"
+        - type: object
+          properties:
+            provenance:
+              $ref: "#/components/schemas/Provenance"
+            source_definitions:
+              type: array
+              items:
+                $ref: "#/components/schemas/SourceDefinition"
+            modules:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+            quiz:
+              type: object
+              additionalProperties: true
+            artifacts:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+            assets:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+            verification:
+              $ref: "#/components/schemas/VerificationResult"
+            review_notes:
+              type: string
+              nullable: true
+
+    ContentDraftPage:
+      type: object
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentDraft"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    ApproveRequest:
+      type: object
+      required: [attestation_text]
+      properties:
+        attestation_text:
+          type: string
+          description: The approver's accuracy attestation, captured as audit evidence.
+
+    ReviewNotes:
+      type: object
+      required: [notes]
+      properties:
+        notes:
+          type: string
+
+    PublishRequest:
+      type: object
+      properties:
+        effective_from:
+          type: string
+          format: date-time
+          nullable: true
+        is_material_change:
+          type: boolean
+          default: false
+
+    RegenerateRequest:
+      type: object
+      properties:
+        notes:
+          type: string
+        parameter_overrides:
+          type: object
+          description: |
+            Partial Package Request fields to change before regenerating (e.g.
+            scope, assessment, constraints). Unspecified fields reuse the original.
+          additionalProperties: true
+
+    # ----- Player (playback + watch progress) --------------------------
+    PlayerAsset:
+      type: object
+      required: [type, url]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [video, deck, animated_svg, pdf]
+        url:
+          type: string
+          format: uri
+          description: Time-limited (e.g. presigned) asset URL.
+        expires_at:
+          type: string
+          format: date-time
+
+    PlayerManifest:
+      type: object
+      required:
+        [
+          assignment_id,
+          course_version_id,
+          min_watch_pct,
+          watched_pct,
+          quiz_unlocked,
+          assets,
+        ]
+      properties:
+        assignment_id:
+          type: string
+          format: uuid
+        course_version_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        min_watch_pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+        watched_pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+        quiz_unlocked:
+          type: boolean
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlayerAsset"
+
+    ProgressUpdate:
+      type: object
+      required: [watched_pct]
+      properties:
+        watched_pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+        position_seconds:
+          type: number
+          nullable: true
+
+    WatchProgress:
+      type: object
+      required: [assignment_id, watched_pct, quiz_unlocked]
+      properties:
+        assignment_id:
+          type: string
+          format: uuid
+        watched_pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+        quiz_unlocked:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time

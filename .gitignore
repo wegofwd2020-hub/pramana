@@ -1,0 +1,6 @@
+# Python bytecode caches
+__pycache__/
+*.py[cod]
+
+# Packaging / build metadata
+*.egg-info/

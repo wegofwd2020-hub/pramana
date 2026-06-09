@@ -14,6 +14,8 @@ from pramana.db.models.assignment import (
     Certificate,
 )
 from pramana.db.models.audit import AuditLog
+from pramana.db.models.content import ContentDraft
+from pramana.db.models.content_request import ContentRequest
 from pramana.db.models.course import (
     AnswerOption,
     Course,
@@ -31,7 +33,7 @@ from pramana.db.models.identity import (
     UserType,
 )
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - grouped by domain, not alphabetical
     # Identity
     "Tenant",
     "User",
@@ -46,6 +48,9 @@ __all__ = [
     "Question",
     "AnswerOption",
     "QuestionType",
+    # Content authoring
+    "ContentDraft",
+    "ContentRequest",
     # Assignment
     "Assignment",
     "Attempt",

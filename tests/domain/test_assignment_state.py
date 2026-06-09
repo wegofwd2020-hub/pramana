@@ -9,10 +9,11 @@ correspond directly to the worked flows in Section 4.4 of
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from pramana.domain.assignment_state import (
     DEFAULT_MAX_ATTEMPTS,
@@ -39,7 +40,7 @@ from pramana.exceptions import (
 # ---------------------------------------------------------------------------
 # Mock data — fixtures used by both example tests and property tests
 # ---------------------------------------------------------------------------
-NOW = datetime(2026, 5, 5, 12, 0, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 5, 5, 12, 0, 0, tzinfo=UTC)
 LATER = NOW + timedelta(days=30)
 COOLDOWN_DAYS = 365
 PASS_THRESHOLD = 80.0
@@ -63,12 +64,10 @@ def in_progress_snapshot(fresh_snapshot: AssignmentSnapshot) -> AssignmentSnapsh
 tz_aware_datetimes = st.datetimes(
     min_value=datetime(2024, 1, 1),
     max_value=datetime(2030, 12, 31),
-    timezones=st.just(timezone.utc),
+    timezones=st.just(UTC),
 )
 
-scores = st.floats(
-    min_value=0.0, max_value=100.0, allow_nan=False, allow_infinity=False
-)
+scores = st.floats(min_value=0.0, max_value=100.0, allow_nan=False, allow_infinity=False)
 
 cooldown_days_strategy = st.integers(min_value=0, max_value=3650)
 max_attempts_strategy = st.integers(min_value=1, max_value=5)
@@ -118,23 +117,17 @@ class TestSnapshotInvariants:
 
     def test_zero_max_attempts_rejected(self) -> None:
         with pytest.raises(ValueError, match="max_attempts must be >= 1"):
-            AssignmentSnapshot(
-                status=AssignmentStatus.ASSIGNED, max_attempts=0
-            )
+            AssignmentSnapshot(status=AssignmentStatus.ASSIGNED, max_attempts=0)
 
     def test_negative_cooldown_rejected(self) -> None:
         with pytest.raises(ValueError, match="cooldown_days must be non-negative"):
-            AssignmentSnapshot(
-                status=AssignmentStatus.ASSIGNED, cooldown_days=-1
-            )
+            AssignmentSnapshot(status=AssignmentStatus.ASSIGNED, cooldown_days=-1)
 
     def test_remaining_attempts_property(self) -> None:
         """remaining_attempts = max(0, max_attempts - attempts_used)."""
         snap = initial_snapshot(max_attempts=3)
         assert snap.remaining_attempts == 3
-        snap = AssignmentSnapshot(
-            status=AssignmentStatus.ASSIGNED, max_attempts=3, attempts_used=2
-        )
+        snap = AssignmentSnapshot(status=AssignmentStatus.ASSIGNED, max_attempts=3, attempts_used=2)
         assert snap.remaining_attempts == 1
         snap = AssignmentSnapshot(
             status=AssignmentStatus.ASSIGNED, max_attempts=3, attempts_used=10
@@ -148,30 +141,18 @@ class TestSnapshotInvariants:
 class TestStartAttempt:
     """Behaviour of the ASSIGNED → IN_PROGRESS transition."""
 
-    def test_starts_from_assigned(
-        self, fresh_snapshot: AssignmentSnapshot
-    ) -> None:
-        result = start_attempt(
-            fresh_snapshot, user_has_other_in_progress_assignment=False
-        )
+    def test_starts_from_assigned(self, fresh_snapshot: AssignmentSnapshot) -> None:
+        result = start_attempt(fresh_snapshot, user_has_other_in_progress_assignment=False)
         assert result.status is AssignmentStatus.IN_PROGRESS
         assert result.attempts_used == 1
 
-    def test_increments_attempts_used(
-        self, fresh_snapshot: AssignmentSnapshot
-    ) -> None:
-        result = start_attempt(
-            fresh_snapshot, user_has_other_in_progress_assignment=False
-        )
+    def test_increments_attempts_used(self, fresh_snapshot: AssignmentSnapshot) -> None:
+        result = start_attempt(fresh_snapshot, user_has_other_in_progress_assignment=False)
         assert result.attempts_used == fresh_snapshot.attempts_used + 1
 
-    def test_blocks_on_concurrent_assignment(
-        self, fresh_snapshot: AssignmentSnapshot
-    ) -> None:
+    def test_blocks_on_concurrent_assignment(self, fresh_snapshot: AssignmentSnapshot) -> None:
         with pytest.raises(ConcurrentAssignmentError):
-            start_attempt(
-                fresh_snapshot, user_has_other_in_progress_assignment=True
-            )
+            start_attempt(fresh_snapshot, user_has_other_in_progress_assignment=True)
 
     def test_rejects_when_already_in_progress(
         self, in_progress_snapshot: AssignmentSnapshot
@@ -191,9 +172,7 @@ class TestStartAttempt:
             AssignmentStatus.EXPIRED,
         ],
     )
-    def test_rejects_from_terminal_states(
-        self, terminal_status: AssignmentStatus
-    ) -> None:
+    def test_rejects_from_terminal_states(self, terminal_status: AssignmentStatus) -> None:
         kwargs: dict = {
             "status": terminal_status,
             "terminal_at": NOW,
@@ -222,9 +201,7 @@ class TestStartAttempt:
 class TestSubmitAttempt:
     """Submission branches into PASSED, retry-eligible FAIL, or BLOCKED."""
 
-    def test_pass_first_attempt(
-        self, in_progress_snapshot: AssignmentSnapshot
-    ) -> None:
+    def test_pass_first_attempt(self, in_progress_snapshot: AssignmentSnapshot) -> None:
         """Flow A from Section 4.4: pass on first try."""
         result = submit_attempt(
             in_progress_snapshot,
@@ -240,9 +217,7 @@ class TestSubmitAttempt:
         assert result.attempt_outcome is AttemptOutcome.PASS
         assert result.retry_available is False
 
-    def test_pass_at_exact_threshold(
-        self, in_progress_snapshot: AssignmentSnapshot
-    ) -> None:
+    def test_pass_at_exact_threshold(self, in_progress_snapshot: AssignmentSnapshot) -> None:
         """Score equal to threshold counts as a pass."""
         result = submit_attempt(
             in_progress_snapshot,
@@ -252,9 +227,7 @@ class TestSubmitAttempt:
         )
         assert result.snapshot.status is AssignmentStatus.PASSED
 
-    def test_fail_with_retry_available(
-        self, in_progress_snapshot: AssignmentSnapshot
-    ) -> None:
+    def test_fail_with_retry_available(self, in_progress_snapshot: AssignmentSnapshot) -> None:
         """Flow B from Section 4.4: fail first attempt, retry available."""
         result = submit_attempt(
             in_progress_snapshot,
@@ -271,9 +244,7 @@ class TestSubmitAttempt:
         assert result.attempt_outcome is AttemptOutcome.FAIL
         assert result.retry_available is True
 
-    def test_fail_max_attempts_reached_blocks(
-        self, fresh_snapshot: AssignmentSnapshot
-    ) -> None:
+    def test_fail_max_attempts_reached_blocks(self, fresh_snapshot: AssignmentSnapshot) -> None:
         """Flow C from Section 4.4: fail second attempt → BLOCKED."""
         # Simulate having burned attempt 1 (failed) and started attempt 2.
         after_first_attempt = AssignmentSnapshot(
@@ -294,9 +265,7 @@ class TestSubmitAttempt:
         assert result.attempt_outcome is AttemptOutcome.FAIL
         assert result.retry_available is False
 
-    def test_rejects_submit_from_assigned(
-        self, fresh_snapshot: AssignmentSnapshot
-    ) -> None:
+    def test_rejects_submit_from_assigned(self, fresh_snapshot: AssignmentSnapshot) -> None:
         with pytest.raises(InvalidStateTransitionError):
             submit_attempt(
                 fresh_snapshot,
@@ -305,9 +274,7 @@ class TestSubmitAttempt:
                 now=NOW,
             )
 
-    def test_rejects_naive_datetime(
-        self, in_progress_snapshot: AssignmentSnapshot
-    ) -> None:
+    def test_rejects_naive_datetime(self, in_progress_snapshot: AssignmentSnapshot) -> None:
         naive = datetime(2026, 5, 5, 12, 0, 0)  # no tzinfo
         with pytest.raises(InvalidStateTransitionError, match="timezone-aware"):
             submit_attempt(
@@ -336,25 +303,19 @@ class TestSubmitAttempt:
 class TestCancelAndExpire:
     """Both go terminal but neither starts cooldown."""
 
-    def test_cancel_from_assigned(
-        self, fresh_snapshot: AssignmentSnapshot
-    ) -> None:
+    def test_cancel_from_assigned(self, fresh_snapshot: AssignmentSnapshot) -> None:
         result = cancel(fresh_snapshot, now=NOW)
         assert result.status is AssignmentStatus.CANCELLED
         assert result.terminal_at == NOW
         assert result.terminal_reason is TerminalReason.CANCELLED_BY_ADMIN
         assert result.cooldown_until is None
 
-    def test_cancel_from_in_progress(
-        self, in_progress_snapshot: AssignmentSnapshot
-    ) -> None:
+    def test_cancel_from_in_progress(self, in_progress_snapshot: AssignmentSnapshot) -> None:
         result = cancel(in_progress_snapshot, now=NOW)
         assert result.status is AssignmentStatus.CANCELLED
         assert result.cooldown_until is None
 
-    def test_expire_from_assigned(
-        self, fresh_snapshot: AssignmentSnapshot
-    ) -> None:
+    def test_expire_from_assigned(self, fresh_snapshot: AssignmentSnapshot) -> None:
         result = expire(fresh_snapshot, now=NOW)
         assert result.status is AssignmentStatus.EXPIRED
         assert result.terminal_reason is TerminalReason.EXPIRED_DUE_DATE
@@ -369,9 +330,7 @@ class TestCancelAndExpire:
             AssignmentStatus.EXPIRED,
         ],
     )
-    def test_cancel_rejected_from_terminal(
-        self, terminal_status: AssignmentStatus
-    ) -> None:
+    def test_cancel_rejected_from_terminal(self, terminal_status: AssignmentStatus) -> None:
         kwargs: dict = {
             "status": terminal_status,
             "terminal_at": NOW,
@@ -383,9 +342,7 @@ class TestCancelAndExpire:
         with pytest.raises(InvalidStateTransitionError):
             cancel(snap, now=LATER)
 
-    def test_cancel_rejects_naive_datetime(
-        self, fresh_snapshot: AssignmentSnapshot
-    ) -> None:
+    def test_cancel_rejects_naive_datetime(self, fresh_snapshot: AssignmentSnapshot) -> None:
         with pytest.raises(InvalidStateTransitionError, match="timezone-aware"):
             cancel(fresh_snapshot, now=datetime(2026, 5, 5))
 
@@ -436,9 +393,7 @@ class TestStateMachineProperties:
             max_attempts=2,
             cooldown_days=cooldown,
         )
-        result = submit_attempt(
-            snap, score_pct=score, pass_threshold_pct=threshold, now=now
-        )
+        result = submit_attempt(snap, score_pct=score, pass_threshold_pct=threshold, now=now)
         if result.snapshot.status.is_terminal:
             assert result.snapshot.terminal_at == now
             assert result.snapshot.terminal_reason is not None
@@ -463,9 +418,7 @@ class TestStateMachineProperties:
             max_attempts=2,
             cooldown_days=cooldown,
         )
-        result = submit_attempt(
-            snap, score_pct=score, pass_threshold_pct=threshold, now=now
-        )
+        result = submit_attempt(snap, score_pct=score, pass_threshold_pct=threshold, now=now)
         if result.snapshot.status.started_cooldown:
             assert result.snapshot.terminal_at is not None
             assert result.snapshot.cooldown_until == (
@@ -485,9 +438,7 @@ class TestStateMachineProperties:
         snap = initial_snapshot(cooldown_days=cooldown, max_attempts=max_attempts)
         prev = snap.attempts_used
         for _ in range(max_attempts):
-            snap = start_attempt(
-                snap, user_has_other_in_progress_assignment=False
-            )
+            snap = start_attempt(snap, user_has_other_in_progress_assignment=False)
             assert snap.attempts_used == prev + 1
             prev = snap.attempts_used
             # Fail intentionally to walk through the loop.
@@ -521,9 +472,7 @@ class TestStateMachineProperties:
             max_attempts=2,
             cooldown_days=cooldown,
         )
-        result = submit_attempt(
-            snap, score_pct=100.0, pass_threshold_pct=PASS_THRESHOLD, now=NOW
-        )
+        result = submit_attempt(snap, score_pct=100.0, pass_threshold_pct=PASS_THRESHOLD, now=NOW)
         assert result.snapshot.status is AssignmentStatus.PASSED
 
         terminal = result.snapshot
@@ -613,9 +562,7 @@ class TestWorkedFlowsFromSpec:
         assert first.retry_available is True
 
         # Attempt 2 — fail.
-        snap = start_attempt(
-            first.snapshot, user_has_other_in_progress_assignment=False
-        )
+        snap = start_attempt(first.snapshot, user_has_other_in_progress_assignment=False)
         second = submit_attempt(
             snap,
             score_pct=70.0,
@@ -624,9 +571,7 @@ class TestWorkedFlowsFromSpec:
         )
         assert second.snapshot.status is AssignmentStatus.BLOCKED
         assert second.snapshot.terminal_reason is TerminalReason.MAX_ATTEMPTS_FAILED
-        assert second.snapshot.cooldown_until == LATER + timedelta(
-            days=COOLDOWN_DAYS
-        )
+        assert second.snapshot.cooldown_until == LATER + timedelta(days=COOLDOWN_DAYS)
         assert second.retry_available is False
 
 

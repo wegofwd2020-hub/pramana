@@ -85,9 +85,7 @@ class Settings(BaseSettings):
     secret_key: SecretStr
 
     # Database
-    database_url: str = Field(
-        default="postgresql+asyncpg://pramana:pramana@localhost:5432/pramana"
-    )
+    database_url: str = Field(default="postgresql+asyncpg://pramana:pramana@localhost:5432/pramana")
     database_pool_size: Annotated[int, Field(ge=1, le=100)] = 10
     database_max_overflow: Annotated[int, Field(ge=0, le=200)] = 20
     database_echo: bool = False
@@ -119,6 +117,17 @@ class Settings(BaseSettings):
     smtp_password: SecretStr = SecretStr("")
     smtp_from_address: str = "noreply@pramana.example.com"
 
+    # Mentible handoff (ADR-011): shared secret used to verify the HMAC-SHA256
+    # signature on an incoming Consumable Package at the ingestion boundary.
+    mentible_package_hmac_secret: SecretStr = SecretStr("")
+    # Base URL Pramana pushes a Package Request to (the Create-phase, outbound
+    # direction). Empty in dev/test → the default Mentible client is a no-op stub.
+    mentible_request_url: str = ""
+
+    # Definitions library (the "law" picker source, ADR-011 §1): directory of
+    # framework_<code>.md docs whose clause anchors a Package Request cites.
+    definitions_root: str = "docs/frameworks"
+
     # Compliance defaults
     default_pass_threshold_pct: Annotated[int, Field(ge=0, le=100)] = 80
     default_cooldown_days: Annotated[int, Field(ge=0, le=3650)] = 365
@@ -145,4 +154,4 @@ def get_settings() -> Settings:
     Raises:
         pydantic.ValidationError: If required settings are missing or malformed.
     """
-    return Settings()  # type: ignore[call-arg]
+    return Settings()

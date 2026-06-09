@@ -32,13 +32,15 @@ config.set_main_option("sqlalchemy.url", settings.database_url)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Import the SQLAlchemy declarative Base once Phase B lands the models.
-# Until then, autogenerate produces empty revisions.
+# Bind autogenerate to the live model metadata. Importing the models package
+# registers every table on ``Base.metadata`` (importing ``base`` alone would
+# leave it empty, making autogenerate/`alembic check` see all tables as removed).
 try:
+    import pramana.db.models  # noqa: F401 — registers models on Base.metadata
     from pramana.db.base import Base
 
     target_metadata = Base.metadata
-except ImportError:  # pragma: no cover — Phase B not yet landed
+except ImportError:  # pragma: no cover — models not importable
     target_metadata = None
 
 
