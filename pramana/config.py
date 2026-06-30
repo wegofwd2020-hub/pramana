@@ -139,6 +139,19 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr = SecretStr("")
     llm_max_tokens: Annotated[int, Field(ge=256, le=8192)] = 4096
 
+    # In-process VIDEO generation (ADR-026): Pramana drafts a compliance video to
+    # accompany a course quiz via the shared wegofwd-video seam. MANAGED-key regime
+    # (same as LLM) — Pramana holds the key; it is passed to the seam per call and
+    # never logged. Empty key in dev/test → generation is not wired (callers inject
+    # a fake provider in tests). The drafted video is NEVER assignable: it attaches
+    # to a DRAFT and is copied onto the immutable CourseVersion only at publish.
+    video_provider: str = "veo"
+    video_model: str = "veo-3.1"
+    video_api_key: SecretStr = SecretStr("")
+    video_resolution: str = "1080p"
+    video_aspect_ratio: str = "16:9"
+    video_min_watch_pct: Annotated[int, Field(ge=0, le=100)] = 0
+
     # Compliance defaults
     default_pass_threshold_pct: Annotated[int, Field(ge=0, le=100)] = 80
     default_cooldown_days: Annotated[int, Field(ge=0, le=3650)] = 365

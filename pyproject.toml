@@ -44,6 +44,11 @@ dependencies = [
     # compliance content (quiz items, …) through the shared provider library.
     # Library, not a service — runs in-process; managed keys passed per call.
     "wegofwd-llm[anthropic] @ git+https://github.com/wegofwd2020-hub/wegofwd-llm@v0.1.1",
+    # In-process VIDEO generation seam (ADR-026): Pramana drafts a compliance
+    # video to accompany a course quiz through the shared provider library.
+    # Library, not a service — runs in-process; managed key passed per call. The
+    # core seam has no runtime deps; the Veo SDK is the optional [veo] extra.
+    "wegofwd-video @ git+https://github.com/wegofwd2020-hub/wegofwd-video@v0.1.0",
     # Object storage
     "boto3>=1.35.0",
     # PDF generation (for certificates, used in later phases)
