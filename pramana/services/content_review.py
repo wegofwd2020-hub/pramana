@@ -27,6 +27,7 @@ from pramana.domain import content_approval as ca
 from pramana.domain.consumable_package import canonical_json, compute_content_hash
 from pramana.domain.enums import ContentDraftStatus, ContentEvent, ContentRequestStatus
 from pramana.domain.publication import QuestionSpec, materialize_quiz
+from pramana.domain.video_generation import materialize_video
 from pramana.exceptions import InvalidStateTransitionError, NotFoundError
 from pramana.services import content_requests
 from pramana.services.audit import append_audit
@@ -305,8 +306,11 @@ async def publish_draft(
     course_version_id = uuid.uuid4()
     # Validates APPROVED *before* any DB write (raises otherwise).
     new = ca.publish(_snapshot(draft), course_version_id=course_version_id)
-    # Validate + project the quiz before any mutation, same as the state check.
+    # Validate + project the quiz (and optional video) before any mutation, same
+    # as the state check. A malformed video block on an APPROVED draft fails the
+    # publish rather than shipping a broken version; no video block is valid.
     quiz = materialize_quiz(draft.body)
+    video = materialize_video(draft.body)
 
     next_version = (
         (
@@ -333,6 +337,8 @@ async def publish_draft(
         published_by_user_id=publisher_user_id,
         is_active=True,
         is_material_change=is_material_change,
+        video_asset_id=video.asset_ref if video else None,
+        min_watch_pct=video.min_watch_pct if video else 0,
     )
     session.add(course_version)
     for spec in quiz.questions:
