@@ -17,11 +17,13 @@ materialize_quiz`).
 The ``video`` body contract::
 
     {
-        "asset_ref": "video/<course>/<draft>.mp4",   # S3 key (caller-stored)
-        "min_watch_pct": 0,                            # watch-gate before the quiz
-        "provenance": { ... },                         # wegofwd_video.provenance()
-        "duration_s": 12, "resolution": "1080p", "has_audio": true,
-        "c2pa_signed": true
+        "asset_ref": "video/<course>/<draft>.mp4",  # S3 key (caller-stored)
+        "min_watch_pct": 0,  # watch-gate before the quiz
+        "provenance": {...},  # wegofwd_video.provenance()
+        "duration_s": 12,
+        "resolution": "1080p",
+        "has_audio": true,
+        "c2pa_signed": true,
     }
 """
 

@@ -51,9 +51,7 @@ def build_s3_video_uploader(settings: Settings) -> VideoUploader:
             "s3",
             region_name=settings.aws_region,
             aws_access_key_id=settings.aws_access_key_id or None,
-            aws_secret_access_key=(
-                settings.aws_secret_access_key.get_secret_value() or None
-            ),
+            aws_secret_access_key=(settings.aws_secret_access_key.get_secret_value() or None),
         )
         try:
             client.put_object(
