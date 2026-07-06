@@ -1,0 +1,20 @@
+# starter manifest — owners: refine feature list
+project: pramana
+stage: spec
+owners: [siva]
+features:
+  - id: locked-requirements
+    name: Locked requirements (v1 single-tenant, SOX scope)
+    status: done
+  - id: data-model
+    name: SQLAlchemy 2.x data model + Alembic baseline
+    status: done
+  - id: quiz-generation
+    name: In-process quiz generation
+    status: in-progress
+  - id: fastapi-service
+    name: FastAPI service layer
+    status: pending
+  - id: wegofwd-video-integration
+    name: wegofwd-video integration for training content
+    status: pending
