@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="Pramana" width="400">
+</p>
+
 # Pramana
 
 > *Pramāṇa* (प्रमाण) — Sanskrit: "proof", "valid means of knowledge".
