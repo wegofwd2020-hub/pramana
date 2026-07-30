@@ -7,9 +7,64 @@
 > *Pramāṇa* (प्रमाण) — Sanskrit: "proof", "valid means of knowledge".
 > The system that produces evidence of compliance training completion.
 
-A compliance training and tracking platform built by **WeGoFwd**.
+A generalisable framework for **auditable compliance training** across regulatory
+domains — SOX, FCPA, HIPAA, GDPR, ISO 27001, PCI DSS — built by **WeGoFwd**.
 
 [![CI](https://github.com/wegofwd2020-hub/pramana/actions/workflows/ci.yml/badge.svg)](https://github.com/wegofwd2020-hub/pramana/actions/workflows/ci.yml)
+
+---
+
+## Why Pramana
+
+Most training platforms treat compliance as reporting: run the courses, then assemble a
+spreadsheet at audit time. That inverts the problem — evidence assembled after the fact
+from mutable state is only as trustworthy as the weakest write path in the system.
+
+**Pramana treats compliance as an architectural concern, not a bolt-on feature.** The
+evidence is the primary artifact; the training experience is what produces it.
+
+Three consequences shape the whole system:
+
+- **Tamper-evident by construction.** Every state change is appended to a hash-chained
+  audit log — each row's SHA-256 covers its own canonical form *and* the previous row's
+  hash. Altering any historical entry breaks every subsequent link, detectable by
+  recomputation alone. No external notary required.
+- **Nothing that has served as evidence can change underneath it.** Quiz attempts pin the
+  question version *and* the then-correct answer; approval freezes a content hash;
+  publishing creates an immutable `CourseVersion`.
+- **The engine is regulation-agnostic.** A new regulatory domain is a new reference
+  document, not a new codebase branch — see [Extending to a new framework](#extending-to-a-new-framework).
+
+Full rationale: [`docs/00_architecture.md`](./docs/00_architecture.md).
+
+### Defence in depth on the audit log
+
+| Layer | Mechanism | Fails to… |
+|---|---|---|
+| Application | No code path issues `UPDATE`/`DELETE` on `audit_log` | prevent a compromised operator |
+| Database | `BEFORE UPDATE` trigger `audit_log_no_update` (migration `0001`); app role holds no mutate grant | prevent a superuser |
+| Cryptographic | SHA-256 hash chain over canonical JSON | *nothing* — it detects what the other two missed |
+
+The hash function ([`compute_audit_hash`](./pramana/services/audit.py)) is deliberately
+**pure** — no session, no I/O — so an auditor can recompute hashes from exported rows
+without the database, without the application, and in a different language if they wish.
+
+### Extending to a new framework
+
+`docs/frameworks/framework_<code>.md` is not documentation — it is **data**. The
+definitions library parses each file and treats its `###` headings as citable clause
+anchors. Those anchors are what content requests must resolve against, enforced as
+*"no definition, no request"*.
+
+So adding a regulatory domain means: author the framework reference following the shared
+10-section structure → its clauses appear in the `/frameworks` picker → content can be
+commissioned against them with citations back to real anchors → approval, publishing,
+assignment, grading, and audit logging already work, because none of them know what SOX is.
+
+What this does *not* give you for free: framework-specific evidence exports (a HIPAA OCR
+binder, a PCI DSS QSA package) remain per-framework deliverables, and genuine conflicts
+between frameworks — GDPR erasure versus SOX seven-year retention — are product decisions
+the architecture cannot settle on its own. Each framework doc catalogues them in §9.
 
 ---
 
@@ -33,6 +88,7 @@ All design documents live under [`docs/`](./docs).
 
 | Document | Purpose |
 |---|---|
+| [`docs/00_architecture.md`](./docs/00_architecture.md) | **Start here** — architectural thesis, audit chain, trust boundaries, extensibility model |
 | [`docs/01_initial_analysis.md`](./docs/01_initial_analysis.md) | Initial robustness analysis of the original 8 requirements |
 | [`docs/02_resolved_decisions.md`](./docs/02_resolved_decisions.md) | Locked v1 specification |
 | [`docs/03_ai_drafted_human_approved_content.md`](./docs/03_ai_drafted_human_approved_content.md) | AI-drafted / human-approved content workflow |
@@ -44,6 +100,13 @@ All design documents live under [`docs/`](./docs).
 
 ## Project status
 
+> **Maturity: pre-release.** The architecture described above is implemented at its core —
+> the hash-chained audit log, the approval and assignment state machines, and the content
+> pipeline endpoints all exist and are tested. The learner-facing runtime (player,
+> certificates, evidence exports) does not. First release is scoped to **SOX** for a single
+> named client; it is **not yet deployed**. This table is the authoritative status — the
+> sections above describe the design, not shipped capability.
+
 | Phase | Deliverable | Status |
 |---|---|---|
 | Spec | Requirements & design decisions | ✅ Complete |
@@ -51,9 +114,13 @@ All design documents live under [`docs/`](./docs).
 | A | OpenAPI specification | ✅ Complete |
 | D | Assignment state machine | ✅ Complete |
 | B | SQLAlchemy data model + Alembic baseline | ✅ Complete |
+| — | Tamper-evident audit log (hash chain + append-only DB trigger) | ✅ Complete |
 | — | OIDC auth (bearer-token → principal, first-login provisioning) | ✅ Complete |
+| — | Framework definitions library (6 references, clause-anchor resolution) | ✅ Complete |
 | — | Content pipeline (Create → Manufacture → Approve → Present) | 🚧 In progress |
 | Next | Assignment / player / certificate runtime | ⏳ |
+| Next | Audit-chain verification tooling & evidence export | ⏳ |
+| Next | S3 Object Lock (WORM) archival of the audit log | ⏳ |
 
 The **content pipeline** is the focus of the current work — commissioning content
 from a regulation, ingesting Mentible Consumable Packages, the human review &
@@ -137,6 +204,15 @@ make run             # Start the FastAPI app on :8000 with auto-reload
 Single-tenant deployment for John Thomas Corporate, scoped to **SOX (Sarbanes-Oxley)**
 compliance training. See [`docs/02_resolved_decisions.md`](./docs/02_resolved_decisions.md)
 for the full specification.
+
+v1 is deliberately narrow in *deployment* scope but not in *architectural* scope: the data
+model carries `tenant_id` from day one, six framework references are authored, and no
+domain rule is SOX-specific. The constraint is what has been validated with a client, not
+what the engine can represent.
+
+Deferred past v1 by decision (not by omission): row-level tenant isolation enforcement,
+multi-select and free-text question types, S3 Object Lock archival, and framework-specific
+evidence exports beyond SOX.
 
 ---
 

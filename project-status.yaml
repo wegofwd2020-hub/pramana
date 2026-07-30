@@ -1,20 +1,59 @@
-# starter manifest — owners: refine feature list
+# Portfolio health manifest — owners: keep `status` honest, it feeds the dashboard.
 project: pramana
-stage: spec
+stage: build
 owners: [siva]
+summary: >-
+  Generalisable framework for auditable compliance training across regulatory
+  domains (SOX, FCPA, HIPAA, GDPR, ISO 27001, PCI DSS). Core architecture is a
+  tamper-evident, hash-chained audit trail making every training completion
+  cryptographically provable and immutable. First release is SOX-scoped for a
+  single named client (not yet deployed). Business teams extend to new
+  regulatory domains by authoring a framework reference document — no core
+  reengineering. Philosophy: compliance is an architectural concern, not a
+  bolt-on feature.
 features:
   - id: locked-requirements
     name: Locked requirements (v1 single-tenant, SOX scope)
     status: done
   - id: data-model
-    name: SQLAlchemy 2.x data model + Alembic baseline
+    name: SQLAlchemy 2.x data model + Alembic baseline (0001→0004)
+    status: done
+  - id: audit-chain
+    name: Tamper-evident audit log (SHA-256 hash chain + append-only DB trigger)
+    status: done
+  - id: assignment-state-machine
+    name: Assignment state machine (pure domain, property-based tests)
+    status: done
+  - id: content-approval
+    name: Content approval state machine (separation of duties, hash-pinned attestation)
+    status: done
+  - id: definitions-library
+    name: Framework definitions library (6 references, clause-anchor resolution)
+    status: done
+  - id: oidc-auth
+    name: OIDC auth (bearer-token to principal, first-login provisioning)
+    status: done
+  - id: fastapi-service
+    name: FastAPI service layer (content-requests, consumer-library, content-drafts, frameworks)
+    status: done
+  - id: package-ingestion
+    name: Consumable Package ingestion (HMAC signature + content-hash verification)
+    status: done
+  - id: wegofwd-video-integration
+    name: wegofwd-video integration for training content (ADR-026)
     status: done
   - id: quiz-generation
     name: In-process quiz generation
     status: in-progress
-  - id: fastapi-service
-    name: FastAPI service layer
+  - id: content-pipeline
+    name: Content pipeline end-to-end (Create → Manufacture → Approve → Present)
+    status: in-progress
+  - id: learner-runtime
+    name: Assignment / player / certificate runtime
     status: pending
-  - id: wegofwd-video-integration
-    name: wegofwd-video integration for training content
+  - id: audit-verification
+    name: Audit-chain verification tooling and evidence export
+    status: pending
+  - id: worm-archival
+    name: S3 Object Lock (WORM) archival of the audit log
     status: pending
