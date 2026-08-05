@@ -16,7 +16,7 @@ features:
     name: Locked requirements (v1 single-tenant, SOX scope)
     status: done
   - id: data-model
-    name: SQLAlchemy 2.x data model + Alembic baseline (0001→0004)
+    name: SQLAlchemy 2.x data model + Alembic baseline (0001→0005)
     status: done
   - id: audit-chain
     name: Tamper-evident audit log (SHA-256 hash chain + append-only DB trigger)
@@ -47,7 +47,7 @@ features:
     status: done
   - id: content-pipeline
     name: Content pipeline end-to-end (Create → Manufacture → Approve → Present)
-    status: in-progress
+    status: done
   - id: learner-runtime
     name: Assignment / player / certificate runtime
     status: pending

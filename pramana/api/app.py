@@ -14,6 +14,7 @@ from pramana.api import (
     content_drafts,
     content_requests,
     frameworks,
+    webhooks,
 )
 from pramana.api.errors import register_exception_handlers
 
@@ -31,6 +32,7 @@ def create_app() -> FastAPI:
     app.include_router(content_drafts.router)
     app.include_router(content_requests.router)
     app.include_router(frameworks.router)
+    app.include_router(webhooks.router)
 
     @app.get("/health", tags=["meta"], summary="Liveness probe")
     async def health() -> dict[str, str]:

@@ -16,16 +16,20 @@ does not re-derive it, and the exact bytes pushed to Mentible stay on record.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
-    Enum as SQLEnum,
-)
-from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
     ForeignKey,
     Index,
+    SmallInteger,
     String,
     Text,
+)
+from sqlalchemy import (
+    Enum as SQLEnum,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -95,7 +99,25 @@ class ContentRequest(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin)
     )
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # ── Generation progress (Mentible progress webhook) ─────────────────────────
+    # Last-reported completion percentage while GENERATING (0-100); monotonic —
+    # a stale lower report never rolls it back. NULL until the first webhook.
+    progress_pct: Mapped[int | None] = mapped_column(
+        SmallInteger,
+        nullable=True,
+        comment="Generation completion percent (0-100), last reported by Mentible.",
+    )
+    progress_eta: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Estimated generation-completion time, last reported by Mentible.",
+    )
+
     __table_args__ = (
+        CheckConstraint(
+            "progress_pct IS NULL OR (progress_pct >= 0 AND progress_pct <= 100)",
+            name="progress_pct_range",
+        ),
         Index("ix_content_request_tenant_status", "tenant_id", "status"),
         Index("ix_content_request_tenant_framework", "tenant_id", "framework"),
     )

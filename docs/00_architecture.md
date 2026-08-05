@@ -222,6 +222,14 @@ Create ──────────▶ Manufacture ──────▶ Appro
 | **Approve** | Human review queue drives the approval state machine; separation of duties, attestation, audit entries | `APPROVED` — trusted, hash-pinned |
 | **Present** | Draft's quiz materialised into the `CourseVersion`'s `Question`/`AnswerOption` rows | `PUBLISHED` — immutable, assignable |
 
+While Mentible manufactures a package, it reports progress back through an
+HMAC-signed webhook (`POST /webhooks/mentible/progress`, a dedicated secret,
+machine-to-machine like ingestion): `REQUESTED → GENERATING` with an optional
+completion percent, or `→ FAILED` if generation is abandoned. The transitions
+are idempotent and never regress — a progress event that races behind the
+package's arrival is dropped, and the reported percent is monotonic — so
+duplicate or out-of-order delivery is safe.
+
 ---
 
 ## 7. Version pinning throughout
