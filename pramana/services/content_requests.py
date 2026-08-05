@@ -189,6 +189,87 @@ async def link_received_package(
     return cr
 
 
+async def mark_generating(
+    session: AsyncSession,
+    *,
+    request_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    progress_pct: int | None,
+    eta: datetime | None,
+    now: datetime,
+) -> ContentRequest | None:
+    """Record Mentible generation progress: ``REQUESTED → GENERATING``.
+
+    Driven by the Mentible progress webhook. Idempotent and defensive:
+
+    - Applies only from ``REQUESTED`` or (a repeat report) ``GENERATING`` — a
+      ``generating`` webhook that races behind the package's arrival never
+      regresses a ``RECEIVED``/``IN_REVIEW``/``PUBLISHED`` request.
+    - ``progress_pct`` is monotonic: a stale lower report leaves the stored value
+      unchanged, so an out-of-order delivery never rolls the bar backward.
+
+    Returns ``None`` (no-op) when no such request exists in the tenant or it has
+    already progressed past ``GENERATING``.
+    """
+    cr = await session.get(ContentRequest, request_id)
+    if cr is None or cr.archived_at is not None or cr.tenant_id != tenant_id:
+        return None
+    if cr.status not in (
+        ContentRequestStatus.REQUESTED.value,
+        ContentRequestStatus.GENERATING.value,
+    ):
+        return None
+
+    cr.status = ContentRequestStatus.GENERATING.value
+    if progress_pct is not None:
+        cr.progress_pct = (
+            progress_pct if cr.progress_pct is None else max(cr.progress_pct, progress_pct)
+        )
+    if eta is not None:
+        cr.progress_eta = eta
+    await _audit_event(
+        session,
+        cr,
+        event=ContentRequestEvent.PROGRESS,
+        now=now,
+        extra={"progress_pct": cr.progress_pct},
+    )
+    return cr
+
+
+async def mark_failed(
+    session: AsyncSession,
+    *,
+    request_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    reason: str | None,
+    now: datetime,
+) -> ContentRequest | None:
+    """Record that Mentible abandoned generation: ``→ FAILED`` (terminal).
+
+    Driven by the Mentible progress webhook. Allowed from ``REQUESTED`` or
+    ``GENERATING``; a no-op once the request is terminal (``PUBLISHED``/
+    ``FAILED``) or already past generation (``RECEIVED``/``IN_REVIEW`` — a package
+    arrived, so a late failure report is not authoritative). Returns ``None`` on
+    no-op. Persists ``failure_reason`` for the review surface.
+    """
+    cr = await session.get(ContentRequest, request_id)
+    if cr is None or cr.archived_at is not None or cr.tenant_id != tenant_id:
+        return None
+    if cr.status not in (
+        ContentRequestStatus.REQUESTED.value,
+        ContentRequestStatus.GENERATING.value,
+    ):
+        return None
+
+    cr.status = ContentRequestStatus.FAILED.value
+    cr.failure_reason = reason
+    await _audit_event(
+        session, cr, event=ContentRequestEvent.FAIL, now=now, extra={"reason": reason}
+    )
+    return cr
+
+
 async def advance_for_draft(
     session: AsyncSession,
     *,

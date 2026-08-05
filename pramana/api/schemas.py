@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -231,6 +231,9 @@ class ContentRequestOut(BaseModel):
     course_id: uuid.UUID | None
     package_id: uuid.UUID | None
     draft_id: uuid.UUID | None
+    progress_pct: int | None
+    progress_eta: datetime | None
+    failure_reason: str | None
     created_at: datetime | None
 
     @classmethod
@@ -244,6 +247,9 @@ class ContentRequestOut(BaseModel):
             course_id=cr.course_id,
             package_id=cr.package_id,
             draft_id=cr.draft_id,
+            progress_pct=cr.progress_pct,
+            progress_eta=cr.progress_eta,
+            failure_reason=cr.failure_reason,
             created_at=getattr(cr, "created_at", None),
         )
 
@@ -251,6 +257,42 @@ class ContentRequestOut(BaseModel):
 class ContentRequestPage(BaseModel):
     items: list[ContentRequestOut]
     pagination: Pagination
+
+
+# ---------------------------------------------------------------------------
+# Mentible progress webhook (inbound, machine-to-machine, HMAC-signed)
+# ---------------------------------------------------------------------------
+class MentibleProgressWebhook(BaseModel):
+    """Body of an inbound Mentible generation-progress webhook.
+
+    Keyed by the ``request_id`` Pramana stamped into the pushed Package Request
+    (and that Mentible echoes). ``tenant_id`` scopes the lookup. ``event`` selects
+    the transition: ``progress`` advances ``REQUESTED → GENERATING`` (with an
+    optional ``progress_pct``/``eta``); ``failure`` moves the request to
+    ``FAILED`` with an optional ``detail`` recorded as the failure reason.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: uuid.UUID
+    tenant_id: uuid.UUID
+    event: Literal["progress", "failure"]
+    progress_pct: Annotated[int, Field(ge=0, le=100)] | None = None
+    eta: datetime | None = None
+    detail: str | None = None
+
+
+class MentibleProgressResponse(BaseModel):
+    """Result of a webhook: the request's resulting status, or ``ignored``.
+
+    ``applied`` is ``False`` when the event was a no-op (unknown request, or one
+    already past the point the event describes) — always a 200 so Mentible does
+    not retry a benign no-op.
+    """
+
+    applied: bool
+    request_id: uuid.UUID
+    status: str | None = None
 
 
 class CourseVersionOut(BaseModel):

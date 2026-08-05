@@ -209,4 +209,7 @@ class ContentRequestEvent(StrEnum):
     REGENERATE = auto()
     RECEIVE = auto()
     ADVANCE = auto()
+    # Mentible progress webhook: generation started / advanced (REQUESTED →
+    # GENERATING), and generation abandoned (→ FAILED).
+    PROGRESS = auto()
     FAIL = auto()

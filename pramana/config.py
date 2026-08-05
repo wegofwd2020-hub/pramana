@@ -120,6 +120,10 @@ class Settings(BaseSettings):
     # Mentible handoff (ADR-011): shared secret used to verify the HMAC-SHA256
     # signature on an incoming Consumable Package at the ingestion boundary.
     mentible_package_hmac_secret: SecretStr = SecretStr("")
+    # Separate shared secret verifying the HMAC-SHA256 signature on an inbound
+    # Mentible *progress webhook* (generation started / failed). Kept distinct
+    # from the package secret so the two rotate independently.
+    mentible_webhook_hmac_secret: SecretStr = SecretStr("")
     # Base URL Pramana pushes a Package Request to (the Create-phase, outbound
     # direction). Empty in dev/test → the default Mentible client is a no-op stub.
     mentible_request_url: str = ""

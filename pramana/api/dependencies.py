@@ -15,6 +15,7 @@ from typing import Annotated, Any, Protocol
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pramana.api.schemas import MentibleProgressWebhook
 from pramana.config import get_settings
 from pramana.db.models.content import ContentDraft
 from pramana.db.models.content_request import ContentRequest
@@ -47,10 +48,12 @@ __all__ = [
     "get_db_session",
     "get_definitions_root",
     "get_mentible_client",
+    "get_mentible_webhook_handler",
     "get_package_ingestor",
     "get_principal",
     "get_signature_verifier",
     "get_token_verifier",
+    "get_webhook_signature_verifier",
 ]
 
 
@@ -78,6 +81,12 @@ async def get_db_session() -> AsyncIterator[AsyncSession]:
 def get_signature_verifier() -> SignatureVerifier:
     """Build the package signature verifier from configured key custody."""
     secret = get_settings().mentible_package_hmac_secret.get_secret_value()
+    return HmacSignatureVerifier(secret)
+
+
+def get_webhook_signature_verifier() -> SignatureVerifier:
+    """Build the *webhook* signature verifier (distinct secret from packages)."""
+    secret = get_settings().mentible_webhook_hmac_secret.get_secret_value()
     return HmacSignatureVerifier(secret)
 
 
@@ -392,3 +401,51 @@ def get_content_request_service(
 ) -> ContentRequestService:
     """Provide the default database-backed content-request (commission) service."""
     return _DbContentRequestService(session, principal, definitions_root, mentible)
+
+
+# ---------------------------------------------------------------------------
+# Mentible progress webhook seam (inbound, machine-to-machine)
+# ---------------------------------------------------------------------------
+class MentibleWebhookHandler(Protocol):
+    """The seam the progress-webhook route depends on.
+
+    A protocol so the HTTP layer (HMAC verification + parsing) is testable
+    without a database. ``handle`` returns ``(applied, resulting_status)`` where
+    ``applied`` is ``False`` for a benign no-op (unknown / already-progressed
+    request)."""
+
+    async def handle(self, payload: MentibleProgressWebhook) -> tuple[bool, str | None]: ...
+
+
+class _DbMentibleWebhookHandler:
+    """Default handler: dispatches the webhook event to the content-request service."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._s = session
+
+    async def handle(self, payload: MentibleProgressWebhook) -> tuple[bool, str | None]:
+        if payload.event == "progress":
+            cr = await content_requests.mark_generating(
+                self._s,
+                request_id=payload.request_id,
+                tenant_id=payload.tenant_id,
+                progress_pct=payload.progress_pct,
+                eta=payload.eta,
+                now=utcnow(),
+            )
+        else:  # "failure"
+            cr = await content_requests.mark_failed(
+                self._s,
+                request_id=payload.request_id,
+                tenant_id=payload.tenant_id,
+                reason=payload.detail,
+                now=utcnow(),
+            )
+        return (cr is not None, cr.status if cr is not None else None)
+
+
+def get_mentible_webhook_handler(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> MentibleWebhookHandler:
+    """Provide the default database-backed Mentible webhook handler."""
+    return _DbMentibleWebhookHandler(session)

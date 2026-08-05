@@ -411,6 +411,116 @@ class TestAdvanceForDraft:
         assert cr.status == "published"
 
 
+ETA = datetime(2026, 6, 7, 15, 0, tzinfo=UTC)
+
+
+class TestMarkGenerating:
+    async def test_advances_requested_to_generating(self) -> None:
+        cr = _request("requested")
+        session = fake_session(get=cr, execute=[_result()])  # audit prev-hash
+        out = await crq.mark_generating(
+            session, request_id=cr.id, tenant_id=TENANT, progress_pct=30, eta=ETA, now=NOW
+        )
+        assert out is cr
+        assert cr.status == ContentRequestStatus.GENERATING.value
+        assert cr.progress_pct == 30
+        assert cr.progress_eta == ETA
+        session.add.assert_called()  # audit entry
+
+    async def test_idempotent_repeat_while_generating(self) -> None:
+        cr = _request("generating")
+        cr.progress_pct = 30
+        session = fake_session(get=cr, execute=[_result()])
+        out = await crq.mark_generating(
+            session, request_id=cr.id, tenant_id=TENANT, progress_pct=55, eta=None, now=NOW
+        )
+        assert out is cr
+        assert cr.status == ContentRequestStatus.GENERATING.value
+        assert cr.progress_pct == 55
+
+    async def test_pct_is_monotonic_no_rollback(self) -> None:
+        cr = _request("generating")
+        cr.progress_pct = 60
+        session = fake_session(get=cr, execute=[_result()])
+        await crq.mark_generating(
+            session, request_id=cr.id, tenant_id=TENANT, progress_pct=40, eta=None, now=NOW
+        )
+        assert cr.progress_pct == 60  # stale lower report does not roll back
+
+    async def test_noop_when_missing(self) -> None:
+        session = fake_session(get=None)
+        out = await crq.mark_generating(
+            session, request_id=uuid.uuid4(), tenant_id=TENANT, progress_pct=10, eta=None, now=NOW
+        )
+        assert out is None
+        session.add.assert_not_called()
+
+    async def test_noop_does_not_regress_received(self) -> None:
+        cr = _request("received")
+        session = fake_session(get=cr)
+        out = await crq.mark_generating(
+            session, request_id=cr.id, tenant_id=TENANT, progress_pct=90, eta=None, now=NOW
+        )
+        assert out is None
+        assert cr.status == "received"
+
+    async def test_noop_cross_tenant(self) -> None:
+        cr = _request("requested")
+        cr.tenant_id = uuid.uuid4()
+        session = fake_session(get=cr)
+        out = await crq.mark_generating(
+            session, request_id=cr.id, tenant_id=TENANT, progress_pct=10, eta=None, now=NOW
+        )
+        assert out is None
+
+
+class TestMarkFailed:
+    async def test_fails_from_requested(self) -> None:
+        cr = _request("requested")
+        session = fake_session(get=cr, execute=[_result()])
+        out = await crq.mark_failed(
+            session, request_id=cr.id, tenant_id=TENANT, reason="engine crashed", now=NOW
+        )
+        assert out is cr
+        assert cr.status == ContentRequestStatus.FAILED.value
+        assert cr.failure_reason == "engine crashed"
+
+    async def test_fails_from_generating(self) -> None:
+        cr = _request("generating")
+        session = fake_session(get=cr, execute=[_result()])
+        out = await crq.mark_failed(
+            session, request_id=cr.id, tenant_id=TENANT, reason=None, now=NOW
+        )
+        assert out is cr
+        assert cr.status == ContentRequestStatus.FAILED.value
+
+    async def test_noop_when_terminal_published(self) -> None:
+        cr = _request("published")
+        session = fake_session(get=cr)
+        out = await crq.mark_failed(
+            session, request_id=cr.id, tenant_id=TENANT, reason="late", now=NOW
+        )
+        assert out is None
+        assert cr.status == "published"
+
+    async def test_noop_when_package_already_received(self) -> None:
+        cr = _request("received")
+        session = fake_session(get=cr)
+        out = await crq.mark_failed(
+            session, request_id=cr.id, tenant_id=TENANT, reason="late", now=NOW
+        )
+        assert out is None
+        assert cr.status == "received"
+
+    async def test_noop_when_missing(self) -> None:
+        session = fake_session(get=None)
+        out = await crq.mark_failed(
+            session, request_id=uuid.uuid4(), tenant_id=TENANT, reason="x", now=NOW
+        )
+        assert out is None
+        session.add.assert_not_called()
+
+
 def test_parse_status_rejects_unknown() -> None:
     from pramana.exceptions import InvalidStateTransitionError
 
