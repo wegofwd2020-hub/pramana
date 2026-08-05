@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     from pramana.db.models.assignment import Assignment, Attempt, Certificate
+    from pramana.db.models.audit import AuditLog
     from pramana.db.models.content import ContentDraft
     from pramana.db.models.content_request import ContentRequest
     from pramana.db.models.course import CourseVersion
@@ -475,6 +476,88 @@ class CertificateVerification(BaseModel):
     issued_at: datetime | None = None
     expires_at: datetime | None = None
     expired: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Audit — verification, search, export
+# ---------------------------------------------------------------------------
+class AuditLogOut(BaseModel):
+    """One audit-log entry, including the chain hashes (re-verifiable)."""
+
+    audit_id: int
+    tenant_id: uuid.UUID
+    actor_user_id: uuid.UUID | None
+    entity_type: str
+    entity_id: str
+    event_type: str
+    payload: dict[str, Any]
+    occurred_at: datetime
+    prev_audit_hash: str | None
+    audit_hash: str
+
+    @classmethod
+    def of(cls, r: AuditLog) -> AuditLogOut:
+        return cls(
+            audit_id=r.audit_id,
+            tenant_id=r.tenant_id,
+            actor_user_id=r.actor_user_id,
+            entity_type=r.entity_type,
+            entity_id=r.entity_id,
+            event_type=r.event_type,
+            payload=r.payload,
+            occurred_at=r.occurred_at,
+            prev_audit_hash=r.prev_audit_hash,
+            audit_hash=r.audit_hash,
+        )
+
+
+class AuditLogPage(BaseModel):
+    items: list[AuditLogOut]
+    pagination: Pagination
+
+
+class ChainBreakOut(BaseModel):
+    audit_id: int
+    reason: str
+    expected: str | None
+    found: str | None
+
+
+class ChainVerificationOut(BaseModel):
+    """Result of verifying the audit chain."""
+
+    ok: bool
+    total: int
+    first_break: ChainBreakOut | None = None
+
+
+# ---------------------------------------------------------------------------
+# Evidence binder (per-user auditor export)
+# ---------------------------------------------------------------------------
+class EvidenceAttemptOut(BaseModel):
+    attempt_number: int
+    outcome: str
+    score_pct: float | None
+    submitted_at: datetime | None
+
+
+class AssignmentEvidenceOut(BaseModel):
+    assignment_id: uuid.UUID
+    course_id: uuid.UUID
+    course_title: str
+    course_version_id: uuid.UUID
+    course_version_number: int
+    status: str
+    assigned_at: datetime | None
+    terminal_at: datetime | None
+    attempts: list[EvidenceAttemptOut]
+    certificate: CertificateOut | None
+
+
+class EvidenceBinderOut(BaseModel):
+    user_id: uuid.UUID
+    user_email: str
+    items: list[AssignmentEvidenceOut]
 
 
 class CourseVersionOut(BaseModel):

@@ -117,8 +117,10 @@ class TestFirstLoginProvisioning:
         email_result.scalars.return_value.all.return_value = list(email_matches)
         audit_result = MagicMock()  # append_audit's prev-hash lookup
         audit_result.scalar_one_or_none.return_value = None
+        roles_result = MagicMock()  # resolve_principal's role lookup
+        roles_result.scalars.return_value.all.return_value = []
         s = AsyncMock()
-        s.execute = AsyncMock(side_effect=[bound_result, email_result, audit_result])
+        s.execute = AsyncMock(side_effect=[bound_result, email_result, audit_result, roles_result])
         s.add = MagicMock()
         s.flush = AsyncMock()
         return s
