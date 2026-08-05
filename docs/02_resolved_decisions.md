@@ -1,9 +1,17 @@
 # Compliance Training & Tracking System — Resolved Decisions
 
 **Document type:** Locked specification (post-clarification)
-**Stage:** Pre-design / scoping complete
+**Stage:** Locked — build in progress
 **Supersedes:** `compliance_training_system_analysis.md` (Sections 4 & 8)
-**Status:** Ready for data-model design
+**Status:** Decisions below are locked and still authoritative. The data model, audit
+chain, and state machines described here are implemented; see
+[`../README.md`](../README.md) for build status and
+[`00_architecture.md`](./00_architecture.md) for how these decisions became architecture.
+
+> **Reading note.** This document records *what was decided and why*, at the time it was
+> decided. It is not updated as code ships — that is the README's job. Where it says
+> "future" or "out of scope for v1", read that as v1 *deployment* scope, not as a statement
+> about what the system can represent.
 
 ---
 
@@ -20,7 +28,7 @@ A compliance training and tracking system for **John Thomas Corporate**, scoped 
 | Tenancy | **Single-tenant** for John Thomas Corporate |
 | Multi-tenant readiness | Data model carries `tenant_id` from day one (defence against future re-platforming) but RLS / tenant-isolation enforcement is **not** built in v1 |
 | Regulatory framework (v1) | **SOX (Sarbanes-Oxley) Section 404** |
-| Future frameworks | HIPAA / GDPR / ISO 27001 — out of scope for v1, design must not preclude |
+| Future frameworks | FCPA / HIPAA / GDPR / ISO 27001 / PCI DSS — out of v1 *deployment* scope, design must not preclude. Reference documents for all six are authored under [`frameworks/`](./frameworks) and are live inputs to the definitions library; no domain rule is SOX-specific. See [`00_architecture.md` §4](./00_architecture.md#4-extensibility-how-a-new-regulatory-domain-is-added) |
 | Deployment | Cloud-hosted (recommended: Railway or AWS, consistent with existing WeGoFwd patterns) |
 
 ---
