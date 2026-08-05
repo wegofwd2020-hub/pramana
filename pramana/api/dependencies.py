@@ -7,7 +7,7 @@ Kept separate from the routers so tests can override individual seams
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, Protocol
@@ -24,7 +24,7 @@ from pramana.db.session import session_scope
 from pramana.domain.consumable_package import SignatureVerifier
 from pramana.domain.content_approval import utcnow
 from pramana.domain.enums import ContentDraftStatus, ContentRequestStatus
-from pramana.exceptions import AuthenticationError
+from pramana.exceptions import AuthenticationError, AuthorizationError
 from pramana.services import content_requests, content_review
 from pramana.services.auth import (
     JwksKeySource,
@@ -198,6 +198,24 @@ async def get_principal(
     token = _bearer_token(request)
     claims = await verifier.verify(token)
     return await resolve_principal(session, claims, now=utcnow())
+
+
+def require_roles(*names: str) -> Callable[[Principal], Principal]:
+    """Build a dependency that admits only principals holding one of ``names``.
+
+    Layered over :func:`get_principal`, so an unauthenticated caller still gets
+    401 and one authenticated-but-unauthorised gets 403 (``AuthorizationError``).
+    """
+
+    def _require(principal: Annotated[Principal, Depends(get_principal)]) -> Principal:
+        if not principal.has_any_role(*names):
+            raise AuthorizationError(
+                "caller lacks a required role",
+                context={"required": list(names)},
+            )
+        return principal
+
+    return _require
 
 
 # ---------------------------------------------------------------------------

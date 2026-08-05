@@ -29,7 +29,7 @@ from jose.exceptions import ExpiredSignatureError, JWTClaimsError, JWTError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pramana.db.models.identity import User, UserStatus
+from pramana.db.models.identity import Role, User, UserRole, UserStatus
 from pramana.exceptions import (
     AuthenticationError,
     AuthorizationError,
@@ -46,10 +46,15 @@ FIRST_LOGIN_EVENT = "user.sso_bound"
 
 @dataclass(frozen=True, slots=True)
 class Principal:
-    """The authenticated caller: their Pramana ``user_id`` and ``tenant_id``."""
+    """The authenticated caller: their Pramana ``user_id``, ``tenant_id``, roles."""
 
     user_id: uuid.UUID
     tenant_id: uuid.UUID
+    roles: frozenset[str] = frozenset()
+
+    def has_any_role(self, *names: str) -> bool:
+        """True if the caller holds at least one of the named roles."""
+        return not self.roles.isdisjoint(names)
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +189,24 @@ async def resolve_principal(
     user = (await session.execute(select(User).where(User.sso_subject == sub))).scalar_one_or_none()
     if user is None:
         user = await _provision_by_email(session, claims, sub=str(sub), now=now)
-    return Principal(user_id=user.user_id, tenant_id=user.tenant_id)
+    roles = await _load_roles(session, user.user_id)
+    return Principal(user_id=user.user_id, tenant_id=user.tenant_id, roles=roles)
+
+
+async def _load_roles(session: AsyncSession, user_id: uuid.UUID) -> frozenset[str]:
+    """Load the user's granted role names."""
+    rows = (
+        (
+            await session.execute(
+                select(Role.name)
+                .join(UserRole, UserRole.role_id == Role.id)
+                .where(UserRole.user_id == user_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return frozenset(rows)
 
 
 async def _provision_by_email(

@@ -53,7 +53,7 @@ features:
     status: done
   - id: audit-verification
     name: Audit-chain verification tooling and evidence export
-    status: pending
+    status: done
   - id: worm-archival
     name: S3 Object Lock (WORM) archival of the audit log
     status: pending
