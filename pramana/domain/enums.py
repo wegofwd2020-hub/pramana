@@ -86,10 +86,18 @@ class TransitionEvent(StrEnum):
     triggering event without re-deriving it from the before/after states.
     """
 
+    CREATE = auto()
     START_ATTEMPT = auto()
     SUBMIT_ATTEMPT = auto()
+    RECORD_PROGRESS = auto()
     CANCEL = auto()
     EXPIRE = auto()
+
+
+class CertificateEvent(StrEnum):
+    """Events on the certificate lifecycle, named on each audit entry."""
+
+    ISSUE = auto()
 
 
 class ContentDraftStatus(StrEnum):

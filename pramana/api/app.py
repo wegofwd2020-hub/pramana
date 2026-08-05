@@ -10,6 +10,8 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from pramana.api import (
+    assignments,
+    certificates,
     consumer_library,
     content_drafts,
     content_requests,
@@ -33,6 +35,8 @@ def create_app() -> FastAPI:
     app.include_router(content_requests.router)
     app.include_router(frameworks.router)
     app.include_router(webhooks.router)
+    app.include_router(assignments.router)
+    app.include_router(certificates.router)
 
     @app.get("/health", tags=["meta"], summary="Liveness probe")
     async def health() -> dict[str, str]:
