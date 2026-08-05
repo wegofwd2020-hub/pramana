@@ -27,6 +27,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -128,6 +129,13 @@ class Assignment(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     cooldown_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Furthest watched position of the pinned CourseVersion's video/deck, as a
+    # percentage. Monotonic (resume-on-return, US-PLATFORM-0002 AC5); gates the
+    # quiz against CourseVersion.min_watch_pct.
+    watched_pct: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=0, server_default="0"
+    )
+
     __table_args__ = (
         CheckConstraint(
             "attempts_used >= 0 AND attempts_used <= max_attempts + 1",
@@ -135,6 +143,7 @@ class Assignment(Base, UUIDPrimaryKeyMixin, TimestampMixin):
             name="attempts_used_range",
         ),
         CheckConstraint("cooldown_days >= 0", name="cooldown_days_nonneg"),
+        CheckConstraint("watched_pct BETWEEN 0 AND 100", name="watched_pct_range"),
         # terminal_at is set iff status is terminal (mirrors the domain invariant).
         CheckConstraint(
             "(status IN ('passed','blocked','cancelled','expired')) = (terminal_at IS NOT NULL)",

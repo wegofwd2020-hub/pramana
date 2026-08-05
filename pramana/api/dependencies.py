@@ -40,9 +40,11 @@ from pramana.services.mentible_client import (
     NullMentibleClient,
 )
 from pramana.services.package_signing import HmacSignatureVerifier
+from pramana.services.player import AssetUrlSigner, null_asset_signer
 
 __all__ = [
     "Principal",
+    "get_asset_signer",
     "get_content_request_service",
     "get_content_review_service",
     "get_db_session",
@@ -88,6 +90,15 @@ def get_webhook_signature_verifier() -> SignatureVerifier:
     """Build the *webhook* signature verifier (distinct secret from packages)."""
     secret = get_settings().mentible_webhook_hmac_secret.get_secret_value()
     return HmacSignatureVerifier(secret)
+
+
+def get_asset_signer() -> AssetUrlSigner:
+    """The player's asset-URL signer. Default: pass-through (no presigning).
+
+    A deployment overrides this with an S3 presigner; kept a seam so the player
+    manifest is testable without boto3.
+    """
+    return null_asset_signer
 
 
 class PackageIngestor(Protocol):

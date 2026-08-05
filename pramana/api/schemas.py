@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
+    from pramana.db.models.assignment import Assignment, Attempt, Certificate
     from pramana.db.models.content import ContentDraft
     from pramana.db.models.content_request import ContentRequest
     from pramana.db.models.course import CourseVersion
@@ -293,6 +294,187 @@ class MentibleProgressResponse(BaseModel):
     applied: bool
     request_id: uuid.UUID
     status: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Learner runtime — assignments
+# ---------------------------------------------------------------------------
+class AssignmentCreate(BaseModel):
+    """Body to assign a course's active version to a user (privileged)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: uuid.UUID
+    course_id: uuid.UUID
+    due_at: datetime | None = None
+
+
+class AssignmentOut(BaseModel):
+    """An assignment and its lifecycle state."""
+
+    assignment_id: uuid.UUID
+    user_id: uuid.UUID
+    course_id: uuid.UUID
+    course_version_id: uuid.UUID
+    status: str
+    attempts_used: int
+    max_attempts: int
+    remaining_attempts: int
+    watched_pct: int
+    due_at: datetime | None
+    terminal_at: datetime | None
+    cooldown_until: datetime | None
+    assigned_at: datetime | None
+
+    @classmethod
+    def of(cls, a: Assignment) -> AssignmentOut:
+        return cls(
+            assignment_id=a.id,
+            user_id=a.user_id,
+            course_id=a.course_id,
+            course_version_id=a.course_version_id,
+            status=a.status,
+            attempts_used=a.attempts_used,
+            max_attempts=a.max_attempts,
+            remaining_attempts=max(0, a.max_attempts - a.attempts_used),
+            watched_pct=a.watched_pct,
+            due_at=a.due_at,
+            terminal_at=a.terminal_at,
+            cooldown_until=a.cooldown_until,
+            assigned_at=getattr(a, "assigned_at", None),
+        )
+
+
+class AssignmentPage(BaseModel):
+    items: list[AssignmentOut]
+    pagination: Pagination
+
+
+class AttemptOut(BaseModel):
+    """A quiz attempt."""
+
+    attempt_id: uuid.UUID
+    assignment_id: uuid.UUID
+    attempt_number: int
+    outcome: str
+    score_pct: float | None
+    started_at: datetime | None
+    submitted_at: datetime | None
+
+    @classmethod
+    def of(cls, at: Attempt) -> AttemptOut:
+        return cls(
+            attempt_id=at.id,
+            assignment_id=at.assignment_id,
+            attempt_number=at.attempt_number,
+            outcome=at.outcome,
+            score_pct=at.score_pct,
+            started_at=getattr(at, "started_at", None),
+            submitted_at=at.submitted_at,
+        )
+
+
+class SubmittedAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question_id: uuid.UUID
+    selected_option_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class AttestationInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text_version: str = Field(min_length=1)
+    accepted: bool
+
+
+class AttemptSubmitRequest(BaseModel):
+    """Body to submit the in-progress attempt: per-question answers + attestation."""
+
+    model_config = ConfigDict(extra="forbid")
+    answers: list[SubmittedAnswer] = Field(default_factory=list)
+    attestation: AttestationInput
+
+
+class SubmissionResultOut(BaseModel):
+    """Outcome of submitting an attempt."""
+
+    assignment_id: uuid.UUID
+    status: str
+    outcome: str
+    score_pct: float
+    retry_available: bool
+    remaining_attempts: int
+    certificate_id: uuid.UUID | None
+
+
+# ---------------------------------------------------------------------------
+# Learner runtime — player / watch-gate
+# ---------------------------------------------------------------------------
+class PlayerManifestOut(BaseModel):
+    assignment_id: uuid.UUID
+    course_version_id: uuid.UUID
+    status: str
+    video_url: str | None
+    min_watch_pct: int
+    watched_pct: int
+    quiz_unlocked: bool
+
+
+class ProgressUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    watched_pct: Annotated[int, Field(ge=0, le=100)]
+
+
+class WatchProgressOut(BaseModel):
+    assignment_id: uuid.UUID
+    watched_pct: int
+    min_watch_pct: int
+    quiz_unlocked: bool
+
+
+# ---------------------------------------------------------------------------
+# Learner runtime — certificates
+# ---------------------------------------------------------------------------
+class CertificateOut(BaseModel):
+    certificate_id: uuid.UUID
+    user_id: uuid.UUID
+    course_id: uuid.UUID
+    course_version_id: uuid.UUID
+    assignment_id: uuid.UUID
+    issued_at: datetime | None
+    expires_at: datetime
+    verification_code: str
+    pdf_available: bool
+
+    @classmethod
+    def of(cls, c: Certificate) -> CertificateOut:
+        return cls(
+            certificate_id=c.id,
+            user_id=c.user_id,
+            course_id=c.course_id,
+            course_version_id=c.course_version_id,
+            assignment_id=c.assignment_id,
+            issued_at=getattr(c, "issued_at", None),
+            expires_at=c.expires_at,
+            verification_code=c.verification_code,
+            pdf_available=c.pdf_object_key is not None,
+        )
+
+
+class CertificatePage(BaseModel):
+    items: list[CertificateOut]
+    pagination: Pagination
+
+
+class CertificateVerification(BaseModel):
+    """Public verification result — minimal, no PII beyond the pinned refs."""
+
+    valid: bool
+    certificate_id: uuid.UUID | None = None
+    course_id: uuid.UUID | None = None
+    course_version_id: uuid.UUID | None = None
+    issued_at: datetime | None = None
+    expires_at: datetime | None = None
+    expired: bool = False
 
 
 class CourseVersionOut(BaseModel):
