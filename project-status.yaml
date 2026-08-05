@@ -44,7 +44,7 @@ features:
     status: done
   - id: quiz-generation
     name: In-process quiz generation
-    status: in-progress
+    status: done
   - id: content-pipeline
     name: Content pipeline end-to-end (Create → Manufacture → Approve → Present)
     status: in-progress
