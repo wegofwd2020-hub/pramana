@@ -488,12 +488,24 @@ can run it over an export, in their own process, without the application.
 | `GET /exports/population` | The in-scope population as CSV |
 | `GET /exports/training-matrix` | Users against courses, with the status each held at `period_end` |
 | `GET /exports/exception-report` | Overdue, blocked, and expired assignments |
+| `GET /exports/users/{user_id}/audit-binder` | One person's evidence package as a PDF, framed for the requesting regulator |
 
 All are gated to the `auditor` and `compliance_admin` roles (§4.3).
 
 `US-SOX-0006` names the four artifacts a §404 assessment needs — population list,
 training matrix, sample evidence packages, exception report — and the surface above
 is exactly that set: the binder is the sample package, the three CSVs are the rest.
+
+**The binder states what it does not cover.** Comparing §6 of each framework
+reference is instructive: the *per-person* package is the same document everywhere —
+assignment, attempts, certificate, attestation — so there is one binder, and what
+varies per framework is framing: the citation it answers and the regulator's own term
+for the artifact. But every regulator also asks for evidence Pramana does not hold —
+programme documentation, sanction policy, a material-change log — so each framing
+carries its own out-of-scope list and the document ends by naming those and saying
+they must be produced separately. A binder that omitted them silently would imply a
+completeness it does not have, and an auditor finding the gap unaided is the worse
+outcome.
 
 ### 7.3 Reports are sourced from history, not current state
 
