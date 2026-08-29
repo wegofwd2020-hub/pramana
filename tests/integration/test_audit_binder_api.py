@@ -221,11 +221,7 @@ class TestTenantIsolation:
         ).get(f"/exports/users/{theirs.user_id}/audit-binder?{PERIOD}")
 
         events = (
-            (
-                await db.execute(
-                    select(AuditLog).where(AuditLog.event_type == "export.audit_binder")
-                )
-            )
+            (await db.execute(select(AuditLog).where(AuditLog.event_type == "export.audit_binder")))
             .scalars()
             .all()
         )
