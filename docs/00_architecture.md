@@ -555,6 +555,13 @@ chain: **nothing that has been used as evidence can be changed underneath it.**
 - Users have a synthetic immutable `user_id`; email and name are mutable attributes, so an
   employee changing their surname does not orphan five years of training records.
 
+The certificate PDF is the pattern's payoff, and the reason it is **not stored**. Every
+fact on it is pinned — the learner's name at issue, the course *version* tested on, the
+score, the dates, the verification code, the attestation accepted — so re-rendering
+always produces the same document. Storing one would buy a cache and cost the question
+of what to do when the file and the row disagree. The row is the evidence; the PDF is a
+view of it, and `/certificates/verify/{code}` remains what a third party should trust.
+
 An audit trail that points at mutable rows is not an audit trail. Hash-chaining the log
 without version-pinning what it references would be a lock on a door with no wall.
 
