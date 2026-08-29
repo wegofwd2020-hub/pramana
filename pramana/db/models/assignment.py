@@ -322,7 +322,10 @@ class Certificate(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     pdf_object_key: Mapped[str | None] = mapped_column(
         String(500),
         nullable=True,
-        comment="S3 key of the rendered certificate PDF.",
+        comment=(
+            "Reserved. Unused: certificate PDFs are rendered on demand from "
+            "pinned facts rather than stored (services/certificate_pdf.py)."
+        ),
     )
 
     # Attestation evidence

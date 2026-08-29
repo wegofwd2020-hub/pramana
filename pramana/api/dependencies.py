@@ -34,6 +34,7 @@ from pramana.services.auth import (
     TokenVerifier,
     resolve_principal,
 )
+from pramana.services.certificate_pdf import PdfRenderer, build_weasyprint_renderer
 from pramana.services.consumer_library import ingest_consumable_package
 from pramana.services.mentible_client import (
     HttpMentibleClient,
@@ -53,6 +54,7 @@ __all__ = [
     "get_mentible_client",
     "get_mentible_webhook_handler",
     "get_package_ingestor",
+    "get_pdf_renderer",
     "get_principal",
     "get_signature_verifier",
     "get_token_verifier",
@@ -91,6 +93,15 @@ def get_webhook_signature_verifier() -> SignatureVerifier:
     """Build the *webhook* signature verifier (distinct secret from packages)."""
     secret = get_settings().mentible_webhook_hmac_secret.get_secret_value()
     return HmacSignatureVerifier(secret)
+
+
+def get_pdf_renderer() -> PdfRenderer:
+    """The certificate PDF renderer. Overridden in tests with a fake.
+
+    WeasyPrint needs native libraries; keeping it behind a dependency means the
+    test suite never imports it.
+    """
+    return build_weasyprint_renderer()
 
 
 def get_asset_signer() -> AssetUrlSigner:

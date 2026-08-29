@@ -444,7 +444,10 @@ class CertificateOut(BaseModel):
     issued_at: datetime | None
     expires_at: datetime
     verification_code: str
-    pdf_available: bool
+    #: Always true: the PDF is rendered on demand from the certificate's pinned
+    #: facts, so there is no state in which one is unavailable. Kept so existing
+    #: clients do not break, but it no longer reflects stored-file presence.
+    pdf_available: bool = True
 
     @classmethod
     def of(cls, c: Certificate) -> CertificateOut:
@@ -457,7 +460,7 @@ class CertificateOut(BaseModel):
             issued_at=getattr(c, "issued_at", None),
             expires_at=c.expires_at,
             verification_code=c.verification_code,
-            pdf_available=c.pdf_object_key is not None,
+            pdf_available=True,
         )
 
 
