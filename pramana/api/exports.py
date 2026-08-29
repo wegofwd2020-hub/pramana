@@ -16,6 +16,7 @@ from datetime import UTC, date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pramana.api.dependencies import get_db_session, get_pdf_renderer, require_roles
@@ -238,9 +239,20 @@ async def export_audit_binder(
         occurred_after=start,
         occurred_before=end,
     )
-    subject = await session.get(User, user_id)
+    # Scoped to the caller's tenant even though build_evidence_binder above has
+    # already refused a foreign subject. Relying on that would make this line's
+    # safety depend on the ordering of two statements; a reorder or a change
+    # there would turn it into a cross-tenant read. Cheap to make local.
+    subject = (
+        await session.execute(
+            select(User).where(User.user_id == user_id, User.tenant_id == auditor.tenant_id)
+        )
+    ).scalar_one_or_none()
+    if subject is None:
+        raise NotFoundError("user not found", context={"user_id": str(user_id)})
+
     document = BinderDocument(
-        subject_name=certificate_pdf.display_name(subject) if subject else binder.user_email,
+        subject_name=certificate_pdf.display_name(subject),
         subject_email=binder.user_email,
         framing=framing,
         period_start=start,

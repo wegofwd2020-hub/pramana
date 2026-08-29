@@ -183,6 +183,55 @@ class TestBinder:
         assert resp.status_code == 422
 
 
+class TestTenantIsolation:
+    async def test_a_user_in_another_tenant_is_not_found(
+        self, db: AsyncSession, sessions: async_sessionmaker[AsyncSession]
+    ) -> None:
+        """An auditor must not be able to bind a subject outside their tenant.
+
+        Regression guard: the binder is assembled before the subject's display
+        name is looked up, so this pins the refusal at the boundary rather than
+        relying on the ordering of two statements staying as it is.
+        """
+        mine = await seed_course(db, n_questions=2)
+        theirs = await seed_course(db, n_questions=2)
+        await _earn(db, theirs)
+
+        resp = _client(
+            sessions,
+            tenant_id=mine.tenant_id,
+            user_id=await _auditor(db, mine.tenant_id),
+            renderer=SpyRenderer(),
+        ).get(f"/exports/users/{theirs.user_id}/audit-binder?{PERIOD}")
+
+        assert resp.status_code == 404
+
+    async def test_no_cross_tenant_binder_is_audited(
+        self, db: AsyncSession, sessions: async_sessionmaker[AsyncSession]
+    ) -> None:
+        """A refused request must not leave an export event naming the subject."""
+        mine = await seed_course(db, n_questions=2)
+        theirs = await seed_course(db, n_questions=2)
+
+        _client(
+            sessions,
+            tenant_id=mine.tenant_id,
+            user_id=await _auditor(db, mine.tenant_id),
+            renderer=SpyRenderer(),
+        ).get(f"/exports/users/{theirs.user_id}/audit-binder?{PERIOD}")
+
+        events = (
+            (
+                await db.execute(
+                    select(AuditLog).where(AuditLog.event_type == "export.audit_binder")
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert events == []
+
+
 class TestAuthorizationAndAudit:
     async def test_a_roleless_caller_is_refused(
         self, db: AsyncSession, sessions: async_sessionmaker[AsyncSession]
