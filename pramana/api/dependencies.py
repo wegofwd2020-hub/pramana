@@ -20,6 +20,7 @@ from pramana.config import get_settings
 from pramana.db.models.content import ContentDraft
 from pramana.db.models.content_request import ContentRequest
 from pramana.db.models.course import CourseVersion
+from pramana.db.models.identity import RoleName
 from pramana.db.session import session_scope
 from pramana.domain.consumable_package import SignatureVerifier
 from pramana.domain.content_approval import utcnow
@@ -216,6 +217,44 @@ def require_roles(*names: str) -> Callable[[Principal], Principal]:
         return principal
 
     return _require
+
+
+#: Roles that may read another user's training records. Managers supervise,
+#: compliance admins administer, auditors inspect — everyone else sees only
+#: their own record.
+STAFF_READ_ROLES = (RoleName.MANAGER, RoleName.COMPLIANCE_ADMIN, RoleName.AUDITOR)
+
+
+def may_read_others(caller: Principal) -> bool:
+    """True if the caller may see training records that are not their own."""
+    return caller.has_any_role(*STAFF_READ_ROLES)
+
+
+def assert_may_read_user(caller: Principal, requested: uuid.UUID | None) -> None:
+    """Refuse a caller asking for another user's records without a staff role.
+
+    Naming yourself is always allowed; omitting the filter is handled by the
+    caller (list routes narrow the scope to self rather than refusing).
+    """
+    if requested is None or requested == caller.user_id or may_read_others(caller):
+        return
+    raise AuthorizationError(
+        "caller may not read another user's records",
+        context={"required": list(STAFF_READ_ROLES)},
+    )
+
+
+def forbid_cross_user_read(
+    caller: Annotated[Principal, Depends(get_principal)],
+    user_id: uuid.UUID | None = None,
+) -> None:
+    """Route dependency: refuse a ``?user_id=`` naming someone else.
+
+    Declared as a dependency rather than checked in the handler so the refusal
+    happens before the route opens a database session — an unauthorised caller
+    should cost a role lookup, not a query.
+    """
+    assert_may_read_user(caller, user_id)
 
 
 # ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ from pramana.api.dependencies import (
     ContentReviewService,
     get_content_request_service,
     get_content_review_service,
+    require_roles,
 )
 from pramana.api.schemas import (
     ApproveRequest,
@@ -36,6 +37,7 @@ from pramana.api.schemas import (
     RegenerateRequest,
     ReviewNotesRequest,
 )
+from pramana.db.models.identity import RoleName
 from pramana.services.content_review import parse_status
 
 router = APIRouter(prefix="/content-drafts", tags=["ContentDrafts"])
@@ -43,8 +45,20 @@ router = APIRouter(prefix="/content-drafts", tags=["ContentDrafts"])
 Service = Annotated[ContentReviewService, Depends(get_content_review_service)]
 RequestService = Annotated[ContentRequestService, Depends(get_content_request_service)]
 
+# Authorisation. Authoring roles drive a draft up to review; only a compliance
+# admin may resolve it. Auditors read the queue — seeing what was approved, and
+# by whom, is the point of the review record — but never act on it.
+_REVIEW_READ = require_roles(RoleName.CONTENT_AUTHOR, RoleName.COMPLIANCE_ADMIN, RoleName.AUDITOR)
+_AUTHORING = require_roles(RoleName.CONTENT_AUTHOR, RoleName.COMPLIANCE_ADMIN)
+_APPROVING = require_roles(RoleName.COMPLIANCE_ADMIN)
 
-@router.get("", response_model=ContentDraftPage, summary="List content drafts (review queue)")
+
+@router.get(
+    "",
+    response_model=ContentDraftPage,
+    summary="List content drafts (review queue)",
+    dependencies=[Depends(_REVIEW_READ)],
+)
 async def list_content_drafts(
     service: Service,
     status_: Annotated[str | None, Query(alias="status")] = None,
@@ -71,6 +85,7 @@ async def list_content_drafts(
     "/{draft_id}",
     response_model=ContentDraftDetail,
     summary="Get a draft for review (preview payload)",
+    dependencies=[Depends(_REVIEW_READ)],
 )
 async def get_content_draft(draft_id: uuid.UUID, service: Service) -> ContentDraftDetail:
     return ContentDraftDetail.of(await service.get_draft(draft_id))
@@ -80,6 +95,7 @@ async def get_content_draft(draft_id: uuid.UUID, service: Service) -> ContentDra
     "/{draft_id}/submit-for-review",
     response_model=ContentDraftOut,
     summary="Open a draft for review",
+    dependencies=[Depends(_AUTHORING)],
 )
 async def submit_for_review(draft_id: uuid.UUID, service: Service) -> ContentDraftOut:
     return ContentDraftOut.of(await service.submit_for_review(draft_id))
@@ -89,6 +105,7 @@ async def submit_for_review(draft_id: uuid.UUID, service: Service) -> ContentDra
     "/{draft_id}/approve",
     response_model=ContentDraftOut,
     summary="Approve a draft (attestation + separation of duties)",
+    dependencies=[Depends(_APPROVING)],
 )
 async def approve(draft_id: uuid.UUID, body: ApproveRequest, service: Service) -> ContentDraftOut:
     return ContentDraftOut.of(
@@ -100,6 +117,7 @@ async def approve(draft_id: uuid.UUID, body: ApproveRequest, service: Service) -
     "/{draft_id}/request-changes",
     response_model=ContentDraftOut,
     summary="Request changes on a draft",
+    dependencies=[Depends(_APPROVING)],
 )
 async def request_changes(
     draft_id: uuid.UUID, body: ReviewNotesRequest, service: Service
@@ -111,6 +129,7 @@ async def request_changes(
     "/{draft_id}/reject",
     response_model=ContentDraftOut,
     summary="Reject a draft (terminal)",
+    dependencies=[Depends(_APPROVING)],
 )
 async def reject(
     draft_id: uuid.UUID, body: ReviewNotesRequest, service: Service
@@ -123,6 +142,7 @@ async def reject(
     status_code=status.HTTP_201_CREATED,
     response_model=CourseVersionOut,
     summary="Publish an approved draft to an immutable course version",
+    dependencies=[Depends(_APPROVING)],
 )
 async def publish(
     draft_id: uuid.UUID, service: Service, body: PublishRequest | None = None
@@ -137,6 +157,7 @@ async def publish(
     status_code=status.HTTP_202_ACCEPTED,
     response_model=ContentRequestOut,
     summary="Regenerate a draft with updated parameters",
+    dependencies=[Depends(_AUTHORING)],
 )
 async def regenerate(
     draft_id: uuid.UUID,

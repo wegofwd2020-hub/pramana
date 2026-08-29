@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pramana.api.app import create_app
 from pramana.api.dependencies import get_db_session, get_principal
+from pramana.db.models.identity import RoleName, User
 from pramana.services.auth import Principal
 from tests.integration.conftest import seed_course
 
@@ -23,7 +24,11 @@ pytestmark = pytest.mark.integration
 
 
 def _client(
-    sessions: async_sessionmaker[AsyncSession], *, tenant_id: uuid.UUID, user_id: uuid.UUID
+    sessions: async_sessionmaker[AsyncSession],
+    *,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    roles: frozenset[str] = frozenset(),
 ) -> TestClient:
     app = create_app()
 
@@ -38,9 +43,33 @@ def _client(
 
     app.dependency_overrides[get_db_session] = _override_session
     app.dependency_overrides[get_principal] = lambda: Principal(
-        user_id=user_id, tenant_id=tenant_id
+        user_id=user_id, tenant_id=tenant_id, roles=roles
     )
     return TestClient(app)
+
+
+async def _another_user(db: AsyncSession, tenant_id: uuid.UUID) -> uuid.UUID:
+    """Insert a second user in the tenant.
+
+    Real rows, not invented UUIDs: ``assignment.assigned_by_user_id`` carries a
+    foreign key to ``user_account``.
+    """
+    user = User(user_id=uuid.uuid4(), tenant_id=tenant_id, email=f"{uuid.uuid4()}@example.com")
+    db.add(user)
+    await db.commit()
+    return user.user_id
+
+
+async def _staff_client(
+    db: AsyncSession, sessions: async_sessionmaker[AsyncSession], *, tenant_id: uuid.UUID
+) -> TestClient:
+    """A manager, who may assign and cancel training for other people."""
+    return _client(
+        sessions,
+        tenant_id=tenant_id,
+        user_id=await _another_user(db, tenant_id),
+        roles=frozenset({RoleName.MANAGER}),
+    )
 
 
 def _attest() -> dict:
@@ -52,9 +81,10 @@ async def test_full_flow_over_http(
 ) -> None:
     seed = await seed_course(db, n_questions=2)
     client = _client(sessions, tenant_id=seed.tenant_id, user_id=seed.user_id)
+    staff = await _staff_client(db, sessions, tenant_id=seed.tenant_id)
 
-    # assign
-    resp = client.post(
+    # a manager assigns; the learner does everything after this
+    resp = staff.post(
         "/assignments", json={"user_id": str(seed.user_id), "course_id": str(seed.course_id)}
     )
     assert resp.status_code == 201, resp.text
@@ -102,7 +132,8 @@ async def test_watch_gate_over_http(
 ) -> None:
     seed = await seed_course(db, min_watch_pct=50)
     client = _client(sessions, tenant_id=seed.tenant_id, user_id=seed.user_id)
-    resp = client.post(
+    staff = await _staff_client(db, sessions, tenant_id=seed.tenant_id)
+    resp = staff.post(
         "/assignments", json={"user_id": str(seed.user_id), "course_id": str(seed.course_id)}
     )
     assignment_id = resp.json()["assignment_id"]
@@ -136,11 +167,75 @@ async def test_verify_unknown_code_is_invalid(
     assert resp.json()["valid"] is False
 
 
+async def test_another_tenant_member_cannot_read_your_assignment(
+    db: AsyncSession, sessions: async_sessionmaker[AsyncSession]
+) -> None:
+    """Tenant membership is not permission to read a colleague's training record."""
+    seed = await seed_course(db)
+    staff = await _staff_client(db, sessions, tenant_id=seed.tenant_id)
+    assignment_id = staff.post(
+        "/assignments", json={"user_id": str(seed.user_id), "course_id": str(seed.course_id)}
+    ).json()["assignment_id"]
+
+    stranger = _client(
+        sessions, tenant_id=seed.tenant_id, user_id=await _another_user(db, seed.tenant_id)
+    )
+    assert stranger.get(f"/assignments/{assignment_id}").status_code == 403
+
+    owner = _client(sessions, tenant_id=seed.tenant_id, user_id=seed.user_id)
+    assert owner.get(f"/assignments/{assignment_id}").status_code == 200
+
+
+async def test_auditor_may_read_anyones_assignment(
+    db: AsyncSession, sessions: async_sessionmaker[AsyncSession]
+) -> None:
+    seed = await seed_course(db)
+    staff = await _staff_client(db, sessions, tenant_id=seed.tenant_id)
+    assignment_id = staff.post(
+        "/assignments", json={"user_id": str(seed.user_id), "course_id": str(seed.course_id)}
+    ).json()["assignment_id"]
+
+    auditor = _client(
+        sessions,
+        tenant_id=seed.tenant_id,
+        user_id=await _another_user(db, seed.tenant_id),
+        roles=frozenset({RoleName.AUDITOR}),
+    )
+    assert auditor.get(f"/assignments/{assignment_id}").status_code == 200
+
+
+async def test_stranger_cannot_read_your_certificate(
+    db: AsyncSession, sessions: async_sessionmaker[AsyncSession]
+) -> None:
+    """A certificate is evidence about a named person; strangers get 403."""
+    seed = await seed_course(db, n_questions=2)
+    staff = await _staff_client(db, sessions, tenant_id=seed.tenant_id)
+    client = _client(sessions, tenant_id=seed.tenant_id, user_id=seed.user_id)
+    assignment_id = staff.post(
+        "/assignments", json={"user_id": str(seed.user_id), "course_id": str(seed.course_id)}
+    ).json()["assignment_id"]
+    client.post(f"/assignments/{assignment_id}/attempts")
+    answers = [
+        {"question_id": str(qid), "selected_option_ids": [str(correct)]}
+        for qid, (correct, _wrong) in seed.questions.items()
+    ]
+    cert_id = client.post(
+        f"/assignments/{assignment_id}/submit",
+        json={"answers": answers, "attestation": _attest()},
+    ).json()["certificate_id"]
+
+    stranger = _client(
+        sessions, tenant_id=seed.tenant_id, user_id=await _another_user(db, seed.tenant_id)
+    )
+    assert stranger.get(f"/certificates/{cert_id}").status_code == 403
+    assert client.get(f"/certificates/{cert_id}").status_code == 200
+
+
 async def test_double_assign_conflicts_over_http(
     db: AsyncSession, sessions: async_sessionmaker[AsyncSession]
 ) -> None:
     seed = await seed_course(db)
-    client = _client(sessions, tenant_id=seed.tenant_id, user_id=seed.user_id)
+    staff = await _staff_client(db, sessions, tenant_id=seed.tenant_id)
     payload = {"user_id": str(seed.user_id), "course_id": str(seed.course_id)}
-    assert client.post("/assignments", json=payload).status_code == 201
-    assert client.post("/assignments", json=payload).status_code == 409
+    assert staff.post("/assignments", json=payload).status_code == 201
+    assert staff.post("/assignments", json=payload).status_code == 409

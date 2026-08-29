@@ -14,7 +14,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pramana.api.dependencies import get_db_session, get_principal
+from pramana.api.dependencies import (
+    forbid_cross_user_read,
+    get_db_session,
+    get_principal,
+    may_read_others,
+)
 from pramana.api.schemas import (
     CertificateOut,
     CertificatePage,
@@ -22,6 +27,7 @@ from pramana.api.schemas import (
     Pagination,
 )
 from pramana.domain.assignment_state import utcnow
+from pramana.exceptions import AuthorizationError
 from pramana.services import certificates as svc
 from pramana.services.auth import Principal
 
@@ -31,7 +37,7 @@ Session = Annotated[AsyncSession, Depends(get_db_session)]
 Caller = Annotated[Principal, Depends(get_principal)]
 
 
-@router.get("", response_model=CertificatePage)
+@router.get("", response_model=CertificatePage, dependencies=[Depends(forbid_cross_user_read)])
 async def list_certificates(
     session: Session,
     caller: Caller,
@@ -39,7 +45,7 @@ async def list_certificates(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> CertificatePage:
-    """List certificates — the caller's own by default, or a given user's."""
+    """List certificates — the caller's own by default, or a given user's (staff)."""
     rows, total = await svc.list_certificates(
         session,
         tenant_id=caller.tenant_id,
@@ -74,7 +80,12 @@ async def verify_certificate(verification_code: str, session: Session) -> Certif
 async def get_certificate(
     certificate_id: uuid.UUID, session: Session, caller: Caller
 ) -> CertificateOut:
+    """Read one certificate — the caller's own, or any of them if staff."""
     cert = await svc.get_certificate(
         session, certificate_id=certificate_id, tenant_id=caller.tenant_id
     )
+    if not may_read_others(caller) and cert.user_id != caller.user_id:
+        raise AuthorizationError(
+            "not your certificate", context={"certificate_id": str(certificate_id)}
+        )
     return CertificateOut.of(cert)

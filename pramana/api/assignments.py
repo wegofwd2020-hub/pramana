@@ -3,9 +3,12 @@
 Thin HTTP shell over :mod:`pramana.services.assignments` and
 :mod:`pramana.services.player`. The request-scoped session
 (:func:`~pramana.api.dependencies.get_db_session`) commits on success, so the
-services never commit. Learner ownership is enforced in the service; creation
-and cancellation are privileged actions (RBAC is a follow-up — today any
-authenticated tenant member may perform them).
+services never commit.
+
+Two authorisation layers meet here. *Ownership* is enforced in the service —
+a learner may only start, submit, watch, or read their own assignment. *Role*
+is enforced at the router: assigning and cancelling require a manager or
+compliance admin, and reading across users requires one of those or an auditor.
 """
 
 from __future__ import annotations
@@ -17,7 +20,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pramana.api.dependencies import get_asset_signer, get_db_session, get_principal
+from pramana.api.dependencies import (
+    forbid_cross_user_read,
+    get_asset_signer,
+    get_db_session,
+    get_principal,
+    may_read_others,
+    require_roles,
+)
 from pramana.api.schemas import (
     AssignmentCreate,
     AssignmentOut,
@@ -30,6 +40,7 @@ from pramana.api.schemas import (
     SubmissionResultOut,
     WatchProgressOut,
 )
+from pramana.db.models.identity import RoleName
 from pramana.domain.assignment_state import utcnow
 from pramana.domain.enums import AssignmentStatus
 from pramana.services import assignments as svc
@@ -59,8 +70,17 @@ def _client_ip(request: Request) -> str | None:
 Session = Annotated[AsyncSession, Depends(get_db_session)]
 Caller = Annotated[Principal, Depends(get_principal)]
 
+# Assigning and cancelling training are administrative acts; learners reach
+# their own assignments through the self-scoped routes below.
+_STAFF = require_roles(RoleName.MANAGER, RoleName.COMPLIANCE_ADMIN)
 
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=AssignmentOut)
+
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    response_model=AssignmentOut,
+    dependencies=[Depends(_STAFF)],
+)
 async def create_assignment(
     body: AssignmentCreate, session: Session, caller: Caller
 ) -> AssignmentOut:
@@ -77,7 +97,7 @@ async def create_assignment(
     return AssignmentOut.of(a)
 
 
-@router.get("", response_model=AssignmentPage)
+@router.get("", response_model=AssignmentPage, dependencies=[Depends(forbid_cross_user_read)])
 async def list_assignments(
     session: Session,
     caller: Caller,
@@ -86,11 +106,12 @@ async def list_assignments(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> AssignmentPage:
-    """List assignments in the tenant (optionally filtered by user / status)."""
+    """List assignments (tenant-wide for staff; the caller's own otherwise)."""
+    scope = user_id if may_read_others(caller) else caller.user_id
     rows, total = await svc.list_assignments(
         session,
         tenant_id=caller.tenant_id,
-        user_id=user_id,
+        user_id=scope,
         status=status_filter,
         page=page,
         page_size=page_size,
@@ -126,11 +147,20 @@ async def list_my_assignments(
 async def get_assignment(
     assignment_id: uuid.UUID, session: Session, caller: Caller
 ) -> AssignmentOut:
-    a = await svc.get_assignment(session, assignment_id=assignment_id, tenant_id=caller.tenant_id)
+    """Read one assignment — the caller's own, or any of them if staff."""
+    a = await svc.get_assignment_for_reader(
+        session,
+        assignment_id=assignment_id,
+        tenant_id=caller.tenant_id,
+        acting_user_id=caller.user_id,
+        may_read_others=may_read_others(caller),
+    )
     return AssignmentOut.of(a)
 
 
-@router.post("/{assignment_id}/cancel", response_model=AssignmentOut)
+@router.post(
+    "/{assignment_id}/cancel", response_model=AssignmentOut, dependencies=[Depends(_STAFF)]
+)
 async def cancel_assignment(
     assignment_id: uuid.UUID, session: Session, caller: Caller
 ) -> AssignmentOut:

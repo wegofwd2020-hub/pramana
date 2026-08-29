@@ -15,16 +15,27 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from pramana.api.dependencies import ContentRequestService, get_content_request_service
+from pramana.api.dependencies import (
+    ContentRequestService,
+    get_content_request_service,
+    require_roles,
+)
 from pramana.api.schemas import (
     ContentRequestCreate,
     ContentRequestOut,
     ContentRequestPage,
     Pagination,
 )
+from pramana.db.models.identity import RoleName
 from pramana.services.content_requests import parse_status
 
-router = APIRouter(prefix="/content-requests", tags=["ContentRequests"])
+# Commissioning is authoring work end to end, so the gate sits on the router
+# rather than each route — a route added later cannot forget it.
+router = APIRouter(
+    prefix="/content-requests",
+    tags=["ContentRequests"],
+    dependencies=[Depends(require_roles(RoleName.CONTENT_AUTHOR, RoleName.COMPLIANCE_ADMIN))],
+)
 
 Service = Annotated[ContentRequestService, Depends(get_content_request_service)]
 
