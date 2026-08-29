@@ -108,27 +108,35 @@ All design documents live under [`docs/`](./docs).
 > deployed**. What remains is follow-on work — WORM archival, certificate PDFs, aggregate
 > reporting — not core capability.
 
-> **Status source of truth:** [`project-status.yaml`](./project-status.yaml) — a dashboard
-> reads it, so it gets updated. The table below duplicates it for readers. **Update both,
-> or neither.** (This table once claimed the learner runtime did not exist for three weeks
-> after it shipped.)
+> **The table below is generated** from [`project-status.yaml`](./project-status.yaml),
+> which is the single source of truth. Edit the manifest, then run `make status`; a test
+> fails if the two drift, so this can no longer go stale by itself.
 
-| Phase | Deliverable | Status |
-|---|---|---|
-| Spec | Requirements & design decisions | ✅ Complete |
-| C | Repo scaffolding | ✅ Complete |
-| A | OpenAPI specification | ✅ Complete |
-| D | Assignment state machine | ✅ Complete |
-| B | SQLAlchemy data model + Alembic baseline | ✅ Complete |
-| — | Tamper-evident audit log (hash chain + append-only DB trigger) | ✅ Complete |
-| — | OIDC auth (bearer-token → principal, first-login provisioning) | ✅ Complete |
-| — | Framework definitions library (6 references, clause-anchor resolution) | ✅ Complete |
-| — | Content pipeline (Create → Manufacture → Approve → Present) | ✅ Complete |
-| — | Learner runtime (assignment → player → attempt → certificate) | ✅ Complete |
-| — | Audit-chain verification, auditor export, evidence binder | ✅ Complete |
-| Next | S3 Object Lock (WORM) archival of the audit log | ⏳ |
-| Next | Certificate PDF render + framework binder templates | ⏳ |
-| Next | Aggregate CSV reports (population, training matrix, exceptions) | ⏳ |
+<!-- BEGIN GENERATED: status -->
+
+| Deliverable | Status |
+|---|---|
+| Locked requirements (v1 single-tenant, SOX scope) | ✅ Complete |
+| Repo scaffolding (CI, lint, type-check, security scan) | ✅ Complete |
+| OpenAPI specification for the full pipeline | ✅ Complete |
+| SQLAlchemy 2.x data model + Alembic baseline (0001→0006) | ✅ Complete |
+| Tamper-evident audit log (SHA-256 hash chain + append-only DB trigger) | ✅ Complete |
+| Assignment state machine (pure domain, property-based tests) | ✅ Complete |
+| Content approval state machine (separation of duties, hash-pinned attestation) | ✅ Complete |
+| Framework definitions library (6 references, clause-anchor resolution) | ✅ Complete |
+| OIDC auth (bearer-token to principal, first-login provisioning) | ✅ Complete |
+| FastAPI service layer (content-requests, consumer-library, content-drafts, frameworks) | ✅ Complete |
+| Consumable Package ingestion (HMAC signature + content-hash verification) | ✅ Complete |
+| wegofwd-video integration for training content (ADR-026) | ✅ Complete |
+| In-process quiz generation | ✅ Complete |
+| Content pipeline end-to-end (Create → Manufacture → Approve → Present) | ✅ Complete |
+| Assignment / player / certificate runtime | ✅ Complete |
+| Audit-chain verification tooling and evidence export | ✅ Complete |
+| S3 Object Lock (WORM) archival of the audit log | ⏳ Planned |
+| Certificate PDF render + framework binder templates | ⏳ Planned |
+| Aggregate CSV reports (population, training matrix, exceptions) | ⏳ Planned |
+
+<!-- END GENERATED: status -->
 
 ### The loop
 

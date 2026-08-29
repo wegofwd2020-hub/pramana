@@ -29,9 +29,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Ruff lint
-        run: ruff check pramana tests
+        run: ruff check pramana tests scripts
       - name: Ruff format check
-        run: ruff format --check pramana tests
+        run: ruff format --check pramana tests scripts
 
   type-check:
     name: Type check
@@ -47,7 +47,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Run mypy
-        run: mypy pramana
+        run: mypy pramana scripts
 
   test:
     name: Test (Python ${{ matrix.python-version }})
