@@ -2,10 +2,15 @@
 # Run `make help` for available targets.
 
 .PHONY: help install dev-install lint format type-check test test-cov \
-        pre-commit clean migrate migrate-create run worker security-scan status grant-role archive-audit
+        pre-commit clean migrate migrate-create run security-scan status grant-role archive-audit
 
 PYTHON := python3
 PIP := $(PYTHON) -m pip
+
+# Overridable so a busy port does not make the target unusable:
+#   make run PORT=8137
+HOST ?= 0.0.0.0
+PORT ?= 8000
 
 help:  ## Show this help.
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -58,11 +63,16 @@ migrate-create:  ## Create a new Alembic migration. Usage: make migrate-create m
 migrate-down:  ## Roll back one Alembic migration.
 	alembic downgrade -1
 
-run:  ## Run the FastAPI app locally with auto-reload.
-	uvicorn pramana.api.main:app --reload --host 0.0.0.0 --port 8000
+# --factory, not a module-level `app`: constructing the application at import
+# time would resolve Settings on import and fight the test suite, which builds a
+# fresh create_app() per test with its own dependency overrides.
+run:  ## Run the FastAPI app with auto-reload. Override with HOST=/PORT=.
+	uvicorn --factory pramana.api.app:create_app --reload --host $(HOST) --port $(PORT)
 
-worker:  ## Run a Celery worker.
-	celery -A pramana.tasks worker --loglevel=info
+# `worker` deliberately removed: there is no Celery application in this repo
+# (pramana/tasks/ is an empty package) and audit archival is an idempotent script
+# by design — see `make archive-audit`. A target that always fails implies a
+# capability that does not exist. Restore it alongside a real Celery app.
 
 status:  ## Regenerate the README status table from project-status.yaml.
 	$(PYTHON) scripts/render_status.py
