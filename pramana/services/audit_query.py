@@ -21,7 +21,7 @@ from pramana.db.models.audit import AuditLog
 from pramana.domain.audit_verification import AuditRow, ChainVerification, verify_chain
 
 
-def _to_audit_row(r: AuditLog) -> AuditRow:
+def to_audit_row(r: AuditLog) -> AuditRow:
     return AuditRow(
         audit_id=r.audit_id,
         tenant_id=r.tenant_id,
@@ -46,7 +46,7 @@ async def verify_stored_chain(session: AsyncSession) -> ChainVerification:
     rows = (
         (await session.execute(select(AuditLog).order_by(AuditLog.audit_id.asc()))).scalars().all()
     )
-    return verify_chain([_to_audit_row(r) for r in rows])
+    return verify_chain([to_audit_row(r) for r in rows])
 
 
 def _filters(

@@ -101,3 +101,34 @@ class AuditLog(Base):
         Index("ix_audit_event_type", "event_type"),
         Index("ix_audit_occurred_at", "occurred_at"),
     )
+
+
+class AuditArchiveSegment(Base):
+    """One range of audit rows mirrored to WORM object storage.
+
+    Bookkeeping, not evidence: the archived objects carry the evidence. This
+    table answers two operational questions the bucket alone answers badly —
+    *where did the last run get to* (so the next resumes rather than re-reading
+    the whole log), and *is the archive complete* (a question a compliance
+    product should answer from its own database, not from a bucket listing).
+
+    ``prev_audit_hash``/``head_audit_hash`` mirror the segment manifest, so
+    contiguity between segments is checkable without fetching the objects.
+    """
+
+    __tablename__ = "audit_archive_segment"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+
+    first_audit_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    last_audit_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    row_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+    prev_audit_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    head_audit_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    object_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    archived_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    retain_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

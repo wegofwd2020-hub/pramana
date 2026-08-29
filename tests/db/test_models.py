@@ -44,6 +44,9 @@ EXPECTED_TABLES: set[str] = {
     "attempt_answer",
     "certificate",
     "audit_log",
+    # Bookkeeping for the WORM archive, not an entity from the resolved-decisions
+    # doc — it records which audit ranges have been mirrored to object storage.
+    "audit_archive_segment",
 }
 
 

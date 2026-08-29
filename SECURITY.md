@@ -36,8 +36,24 @@
 - Tenant/data isolation enforced at the query layer (row scoping).
 
 **Audit log integrity**
-- Append-only audit log; consider WORM/Object-Lock storage (the resolved decisions note AWS S3 Object Lock for audit archive).
-- The application role must **not** hold DELETE/UPDATE on the audit table — enforce via DB grants (`REVOKE`). *(Note: the sister Thittam review flagged an audit_log REVOKE as an open item; do not repeat that here — make it a v1 acceptance test.)*
+- Append-only audit log, enforced by the `audit_log_no_update` and `audit_log_no_delete` triggers, and detectable by the SHA-256 hash chain if both were somehow bypassed.
+- **WORM archival is implemented.** Segments mirror to the `S3_BUCKET_AUDIT_ARCHIVE` bucket under Object Lock in `COMPLIANCE` mode, retained for `DEFAULT_RECORD_RETENTION_YEARS` (7). Run `make archive-audit` on a schedule; it is idempotent and resumable. See `docs/00_architecture.md` §2.4.
+
+*Deployment prerequisites — neither can be done by application code:*
+
+1. **The archive bucket must be created with Object Lock enabled.** S3 does not allow enabling it on an existing bucket. Without it, `put_object` with a retention header fails, and archival will error rather than silently storing unprotected objects.
+2. **Two database roles.** The application should connect as a role that does *not* own the schema, with `APP_DB_ROLE` set to that role's name; migration `0009` then grants it `SELECT, INSERT` on `audit_log` and revokes `UPDATE, DELETE`.
+
+   This matters more than it looks. In Postgres **an object's owner keeps its privileges regardless of `REVOKE`.** In a single-role deployment — where migrations and the application use the same role, which is the default here — the revoke is a no-op and the control does not exist, whatever the migration reports. `APP_DB_ROLE` is empty by default and the migration skips cleanly, so this is opt-in and must be adopted deliberately at deploy time.
+
+   Suggested topology:
+
+   ```
+   pramana_owner  -- owns the schema, runs migrations, not used at runtime
+   pramana_app    -- APP_DB_ROLE; SELECT/INSERT on audit_log, no UPDATE/DELETE
+   ```
+
+   *Status: `TICKETS/PR-1` stays open until a deployment actually adopts this. The code side is done; the control is only real once the roles are split.*
 
 **Application security**
 - Input validation; parameterized queries only (no string-built SQL) to prevent injection.
