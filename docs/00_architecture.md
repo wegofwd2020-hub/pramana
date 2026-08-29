@@ -72,10 +72,12 @@ that permits an independent re-implementation to agree.
 Three independent layers, each sufficient to detect (or prevent) tampering alone:
 
 1. **Application** — no code path issues `UPDATE` or `DELETE` on `audit_log`.
-2. **Database** — a `BEFORE UPDATE` trigger (`audit_log_no_update`, created in
-   [`alembic/versions/0001_initial.py`](../alembic/versions/0001_initial.py)) rejects
-   mutation. The application role is additionally intended to hold no `UPDATE`/`DELETE`
-   grant on the table (see `SECURITY.md` §3; tracked as `TICKETS/PR-1`).
+2. **Database** — two triggers, `audit_log_no_update` and `audit_log_no_delete`
+   (created in [`alembic/versions/0001_initial.py`](../alembic/versions/0001_initial.py)),
+   raise on any `UPDATE` or `DELETE`. Both matter: forbidding edits while permitting
+   deletes would leave the log trivially rewritable by excision. The application role is
+   additionally intended to hold no `UPDATE`/`DELETE` grant on the table (see
+   `SECURITY.md` §3; tracked as `TICKETS/PR-1`).
 3. **Cryptographic** — the chain makes any mutation that *did* somehow land detectable
    after the fact.
 
@@ -241,8 +243,8 @@ Five fixed roles, seeded in the database and loaded onto the `Principal`
 | `trainee` | Take their own assigned training; read their own records |
 | `manager` | Assign and cancel training; read across users |
 | `content_author` | Commission content, submit drafts for review, regenerate |
-| `compliance_admin` | Everything authoring, plus **approve / reject / publish** |
-| `auditor` | Read the audit chain, verify it, export evidence; read the review queue |
+| `compliance_admin` | Everything authoring, plus **approve / reject / publish**, and role administration |
+| `auditor` | Read the audit chain, verify it, export evidence; read the review queue and role grants |
 
 Approval and publication are `compliance_admin` only. Separation of duties would
 already stop an author approving *their own* draft, but restricting the role is a
@@ -252,7 +254,7 @@ it is not the one this deployment chose.
 Learner self-service routes (`/assignments/me`, attempts, submit, player,
 progress) carry **no** role requirement. They are ownership-gated instead, so a
 user with no roles at all can still complete assigned training — which matters,
-because roles are administered manually today (§4.6).
+because roles are granted separately (§4.6).
 
 ### 4.5 Public by design
 
@@ -262,15 +264,45 @@ non-PII facts an external verifier needs — validity, course version, issue and
 expiry. A regulator or counterparty checking a certificate should not need an
 account in the system that issued it.
 
-### 4.6 Known gaps
+### 4.6 Administering roles
 
-Stated rather than left to be discovered:
+Granting authority is itself a privileged act, and it is audited like any other.
+`/users/{user_id}/roles` supports listing, granting, and revoking; the mutating
+routes are compliance-admin only, while auditors may read, because who holds
+which role — and since when, and granted by whom — is access-control evidence.
+Every change appends `user.role_granted` or `user.role_revoked` to the chain
+alongside the actions those roles authorise.
 
-- **No role-management endpoints.** Roles are seeded and granted directly in the
-  database. `TICKETS/PR-3` remains open on exactly this: its acceptance criterion
-  that role changes be audited cannot be met by an API that does not exist. Until
-  it does, role grants are an out-of-band act and the audit trail does not cover
-  them — the one hole in an otherwise complete access-control record.
+Two rules in [`pramana/services/roles.py`](../pramana/services/roles.py) are
+worth naming, since both encode a control rather than a convenience:
+
+- **No self-modification.** An administrator may not change their own roles.
+  Self-escalation is the failure §3.2's separation-of-duties rule exists to
+  prevent, and the same reasoning applies to the roles that gate it: any change
+  takes two people.
+- **The last compliance admin cannot be revoked.** Otherwise the deployment
+  re-enters the bootstrap problem below and needs database access to recover.
+
+### 4.7 Bootstrapping the first administrator
+
+A fresh deployment holds no grants, and the route that creates one requires
+already being an administrator. Something has to break that circle from outside
+the request path.
+
+[`scripts/grant_role.py`](../scripts/grant_role.py) does, run by an operator with
+database access. It is deliberately *not* a special case of the API path — the
+self-modification rule must hold unconditionally for anything reachable over
+HTTP — and the audit entry it writes records the difference: a null
+`actor_user_id` and a `bootstrap` flag, so a reviewer can tell an operator's
+out-of-band act from a user's request at a glance.
+
+The five roles themselves are reference data, seeded by migration `0007`. They
+are duplicated in `ROLE_DESCRIPTIONS` because the integration suite builds its
+schema from the ORM metadata and never runs Alembic; a test asserts the two
+agree and that both cover `RoleName`.
+
+### 4.8 Known gap
+
 - **Tenant isolation is query-level, not enforced by the database.** Every read
   filters on `tenant_id=caller.tenant_id`, but nothing stops a future query from
   omitting it. Row-level security is deferred past v1 (single-tenant). The
@@ -463,7 +495,7 @@ without version-pinning what it references would be a lock on a door with no wal
 |---|---|
 | Language | Python 3.12+ |
 | Web | FastAPI |
-| Persistence | PostgreSQL 16+, SQLAlchemy 2.x, Alembic (`0001`→`0006`) |
+| Persistence | PostgreSQL 16+, SQLAlchemy 2.x, Alembic (`0001`→`0007`) |
 | Background jobs | Celery + Redis |
 | Auth | OIDC / SAML SSO (OIDC bearer-token verification implemented) |
 | Object storage | AWS S3 (Object Lock for audit archive — planned) |
