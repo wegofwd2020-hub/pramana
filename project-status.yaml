@@ -72,8 +72,8 @@ features:
     name: Certificate PDF (rendered on demand from pinned facts)
     status: done
   - id: binder-templates
-    name: Per-framework audit-binder PDF templates (US-SOX-0006 sample packages)
-    status: pending
+    name: Per-framework audit-binder PDF (US-SOX-0006 sample packages)
+    status: done
   - id: aggregate-reports
     name: Aggregate CSV reports (population, training matrix, exceptions)
     status: done

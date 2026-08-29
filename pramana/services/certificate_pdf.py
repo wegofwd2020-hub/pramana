@@ -86,7 +86,7 @@ async def build_certificate_document(
     ).scalar_one_or_none()
 
     return CertificateDocument(
-        learner_name=_display_name(user),
+        learner_name=display_name(user),
         learner_email=user.email,
         course_title=course.title,
         course_version_id=version.id,
@@ -99,7 +99,7 @@ async def build_certificate_document(
     )
 
 
-def _display_name(user: User) -> str:
+def display_name(user: User) -> str:
     """The learner's name, falling back to the email local part.
 
     Names are optional on a user record — a certificate still has to name

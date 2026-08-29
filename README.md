@@ -136,7 +136,7 @@ All design documents live under [`docs/`](./docs).
 | Role administration (audited grants/revokes + operator bootstrap) | ✅ Complete |
 | S3 Object Lock (WORM) archival of the audit log | ✅ Complete |
 | Certificate PDF (rendered on demand from pinned facts) | ✅ Complete |
-| Per-framework audit-binder PDF templates (US-SOX-0006 sample packages) | ⏳ Planned |
+| Per-framework audit-binder PDF (US-SOX-0006 sample packages) | ✅ Complete |
 | Aggregate CSV reports (population, training matrix, exceptions) | ✅ Complete |
 
 <!-- END GENERATED: status -->

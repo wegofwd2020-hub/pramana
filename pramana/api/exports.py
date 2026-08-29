@@ -11,16 +11,25 @@ precedent: reading the records is an event in the record.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pramana.api.dependencies import get_db_session, require_roles
-from pramana.db.models.identity import RoleName
+from pramana.api.dependencies import get_db_session, get_pdf_renderer, require_roles
+from pramana.db.models.identity import RoleName, User
 from pramana.domain.assignment_state import utcnow
-from pramana.services import reporting
+from pramana.domain.binder_document import (
+    FRAMINGS,
+    AttemptLine,
+    BinderDocument,
+    BinderItem,
+    build_binder_html,
+)
+from pramana.exceptions import NotFoundError
+from pramana.services import certificate_pdf, evidence, reporting
 from pramana.services.audit import append_audit
 from pramana.services.auth import Principal
 
@@ -33,6 +42,7 @@ Session = Annotated[AsyncSession, Depends(get_db_session)]
 # endpoint's own parameters, so an unauthorised caller is refused before the
 # request opens a database session.
 Auditor = Annotated[Principal, Depends(_AUDITOR)]
+Renderer = Annotated[certificate_pdf.PdfRenderer, Depends(get_pdf_renderer)]
 
 
 def _end_of(day: date | None) -> datetime:
@@ -165,3 +175,97 @@ async def export_exception_report(
         framework_tag=framework_tag,
     )
     return _csv(rows, reporting.EXCEPTION_COLUMNS, "exception-report.csv")
+
+
+def _to_binder_item(ev: evidence.AssignmentEvidence) -> BinderItem:
+    """Map one assignment's evidence onto what the binder renders."""
+    cert = ev.certificate
+    return BinderItem(
+        course_title=ev.course_title,
+        course_version_id=ev.assignment.course_version_id,
+        course_version_number=ev.course_version_number,
+        status=ev.assignment.status,
+        assigned_at=ev.assignment.assigned_at,
+        terminal_at=getattr(ev.assignment, "terminal_at", None),
+        attempts=tuple(
+            AttemptLine(
+                attempt_number=a.attempt_number,
+                outcome=a.outcome,
+                score_pct=a.score_pct,
+                submitted_at=getattr(a, "submitted_at", None),
+            )
+            for a in ev.attempts
+        ),
+        certificate_code=cert.verification_code if cert else None,
+        certificate_issued_at=getattr(cert, "issued_at", None) if cert else None,
+        attestation_text_version=cert.attestation_text_version if cert else None,
+        attestation_timestamp=cert.attestation_timestamp if cert else None,
+    )
+
+
+@router.get(
+    "/users/{user_id}/audit-binder",
+    response_model=None,
+    dependencies=[Depends(_AUDITOR)],
+)
+async def export_audit_binder(
+    user_id: uuid.UUID,
+    session: Session,
+    auditor: Auditor,
+    render: Renderer,
+    period_start: Annotated[date, Query()],
+    period_end: Annotated[date, Query()],
+    framework: str = "sox",
+) -> Response:
+    """One person's evidence package as a PDF — the sample-testing artifact.
+
+    The document states which citation it answers and, at the end, what it does
+    *not* cover: every framework asks for evidence Pramana does not hold, and a
+    binder that omits that silently implies a completeness it lacks.
+    """
+    framing = FRAMINGS.get(framework)
+    if framing is None:
+        raise NotFoundError(
+            "unknown framework",
+            context={"framework": framework, "known": sorted(FRAMINGS)},
+        )
+
+    start, end = _start_of(period_start), _end_of(period_end)
+    binder = await evidence.build_evidence_binder(
+        session,
+        tenant_id=auditor.tenant_id,
+        user_id=user_id,
+        occurred_after=start,
+        occurred_before=end,
+    )
+    subject = await session.get(User, user_id)
+    document = BinderDocument(
+        subject_name=certificate_pdf.display_name(subject) if subject else binder.user_email,
+        subject_email=binder.user_email,
+        framing=framing,
+        period_start=start,
+        period_end=end,
+        generated_at=utcnow(),
+        items=tuple(_to_binder_item(i) for i in binder.items),
+    )
+    pdf = render(build_binder_html(document))
+
+    await _record(
+        session,
+        auditor,
+        report="audit_binder",
+        row_count=len(document.items),
+        subject_user_id=str(user_id),
+        framework=framework,
+        period_start=start.isoformat(),
+        period_end=end.isoformat(),
+    )
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="audit-binder-{framework}-{user_id}.pdf"'
+            )
+        },
+    )
