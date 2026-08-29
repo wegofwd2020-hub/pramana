@@ -2,7 +2,7 @@
 # Run `make help` for available targets.
 
 .PHONY: help install dev-install lint format type-check test test-cov \
-        pre-commit clean migrate migrate-create run worker security-scan
+        pre-commit clean migrate migrate-create run worker security-scan status
 
 PYTHON := python3
 PIP := $(PYTHON) -m pip
@@ -63,6 +63,9 @@ run:  ## Run the FastAPI app locally with auto-reload.
 
 worker:  ## Run a Celery worker.
 	celery -A pramana.tasks worker --loglevel=info
+
+status:  ## Regenerate the README status table from project-status.yaml.
+	$(PYTHON) scripts/render_status.py
 
 check:  ## Run lint + type-check + tests (CI equivalent).
 	$(MAKE) lint

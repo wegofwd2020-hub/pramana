@@ -11,9 +11,17 @@ summary: >-
   regulatory domains by authoring a framework reference document — no core
   reengineering. Philosophy: compliance is an architectural concern, not a
   bolt-on feature.
+# `features` drives the README status table — regenerate with `make status`
+# after editing (a test fails if the two drift). status: done | in-progress | pending
 features:
   - id: locked-requirements
     name: Locked requirements (v1 single-tenant, SOX scope)
+    status: done
+  - id: repo-scaffolding
+    name: Repo scaffolding (CI, lint, type-check, security scan)
+    status: done
+  - id: openapi-spec
+    name: OpenAPI specification for the full pipeline
     status: done
   - id: data-model
     name: SQLAlchemy 2.x data model + Alembic baseline (0001→0006)
@@ -56,4 +64,10 @@ features:
     status: done
   - id: worm-archival
     name: S3 Object Lock (WORM) archival of the audit log
+    status: pending
+  - id: certificate-pdf
+    name: Certificate PDF render + framework binder templates
+    status: pending
+  - id: aggregate-reports
+    name: Aggregate CSV reports (population, training matrix, exceptions)
     status: pending
