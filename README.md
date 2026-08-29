@@ -100,12 +100,18 @@ All design documents live under [`docs/`](./docs).
 
 ## Project status
 
-> **Maturity: pre-release.** The architecture described above is implemented at its core —
-> the hash-chained audit log, the approval and assignment state machines, and the content
-> pipeline endpoints all exist and are tested. The learner-facing runtime (player,
-> certificates, evidence exports) does not. First release is scoped to **SOX** for a single
-> named client; it is **not yet deployed**. This table is the authoritative status — the
-> sections above describe the design, not shipped capability.
+> **Maturity: pre-release, feature-complete on the core loop.** A regulation goes in
+> one end and cryptographically verifiable proof of training comes out the other:
+> commission → ingest → human approval → publish → assign → play → grade → certify →
+> **verify**. That loop works end to end and is covered by tests against real Postgres.
+> First release is scoped to **SOX** for a single named client, and it is **not yet
+> deployed**. What remains is follow-on work — WORM archival, certificate PDFs, aggregate
+> reporting — not core capability.
+
+> **Status source of truth:** [`project-status.yaml`](./project-status.yaml) — a dashboard
+> reads it, so it gets updated. The table below duplicates it for readers. **Update both,
+> or neither.** (This table once claimed the learner runtime did not exist for three weeks
+> after it shipped.)
 
 | Phase | Deliverable | Status |
 |---|---|---|
@@ -117,17 +123,21 @@ All design documents live under [`docs/`](./docs).
 | — | Tamper-evident audit log (hash chain + append-only DB trigger) | ✅ Complete |
 | — | OIDC auth (bearer-token → principal, first-login provisioning) | ✅ Complete |
 | — | Framework definitions library (6 references, clause-anchor resolution) | ✅ Complete |
-| — | Content pipeline (Create → Manufacture → Approve → Present) | 🚧 In progress |
-| Next | Assignment / player / certificate runtime | ⏳ |
-| Next | Audit-chain verification tooling & evidence export | ⏳ |
+| — | Content pipeline (Create → Manufacture → Approve → Present) | ✅ Complete |
+| — | Learner runtime (assignment → player → attempt → certificate) | ✅ Complete |
+| — | Audit-chain verification, auditor export, evidence binder | ✅ Complete |
 | Next | S3 Object Lock (WORM) archival of the audit log | ⏳ |
+| Next | Certificate PDF render + framework binder templates | ⏳ |
+| Next | Aggregate CSV reports (population, training matrix, exceptions) | ⏳ |
 
-The **content pipeline** is the focus of the current work — commissioning content
-from a regulation, ingesting Mentible Consumable Packages, the human review &
-approval gate, and publishing to immutable course versions:
+### The loop
+
+**Create → Manufacture → Approve → Present** — turning a regulation into an assignable
+course:
 
 - **Create** — `/content-requests` builds a Package Request (validated against the
   definitions library) and pushes it to Mentible; `/frameworks` feeds the "law" picker.
+  `/webhooks/mentible/progress` tracks generation.
 - **Manufacture** — `/consumer-library/packages` ingests a signed package as an
   untrusted `RECEIVED` draft (signature + content-hash verified, else quarantined).
 - **Approve** — `/content-drafts` review queue drives the approval state machine
@@ -135,7 +145,21 @@ approval gate, and publishing to immutable course versions:
 - **Present** — publishing materialises the draft's quiz into the course version's
   `Question`/`AnswerOption` rows so it is assignable and gradeable.
 
-Database schema is managed by Alembic migrations `0001`→`0004`.
+**Assign → Play → Grade → Prove** — turning that course into evidence:
+
+- **Assign** — `/assignments` pins the active course version to a user; the state machine
+  enforces cooldowns, attempt limits, and one active assignment per course.
+- **Play** — `/assignments/{id}/player` serves the pinned manifest and
+  `/progress` records monotonic watch progress, gating the quiz on `min_watch_pct`.
+- **Grade** — `/assignments/{id}/submit` grades server-side, carrying prior correct
+  answers forward on a retry so the client cannot inflate a score by omitting questions.
+  A pass issues a certificate, verifiable publicly at `/certificates/verify/{code}`.
+- **Prove** — `/audit/verify` recomputes the whole hash chain, `/audit/export` emits rows
+  with their hashes for independent re-verification, and `/evidence/{user_id}` assembles a
+  per-user binder. Auditor / compliance-admin only. Pulling an export is itself audited.
+  See [`docs/00_architecture.md` §7](./docs/00_architecture.md#7-proving-it-verification-and-evidence-export).
+
+Database schema is managed by Alembic migrations `0001`→`0006`.
 
 ---
 
