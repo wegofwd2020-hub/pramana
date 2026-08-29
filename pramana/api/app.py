@@ -16,6 +16,7 @@ from pramana.api import (
     consumer_library,
     content_drafts,
     content_requests,
+    exports,
     frameworks,
     roles,
     webhooks,
@@ -40,6 +41,7 @@ def create_app() -> FastAPI:
     app.include_router(assignments.router)
     app.include_router(certificates.router)
     app.include_router(audit.router)
+    app.include_router(exports.router)
     app.include_router(roles.router)
     app.include_router(audit.evidence_router)
 

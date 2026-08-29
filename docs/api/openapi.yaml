@@ -1057,7 +1057,15 @@ paths:
     get:
       tags: [Exports]
       summary: Export the SOX-in-scope population
-      description: CSV download. Requires `Auditor` or `ComplianceAdmin`.
+      description: |
+        CSV download. Requires `Auditor` or `ComplianceAdmin`; the export is
+        itself recorded as an `export.population` audit event.
+
+        "In scope" means *assigned*: users who held at least one assignment as
+        of the date. Training state is point-in-time, sourced from the audit
+        log. User attributes are **not** historised, so the status column is
+        named `user_status_current` — it is a present-day value even when
+        `as_of` is in the past.
       parameters:
         - name: as_of
           in: query
@@ -1082,8 +1090,10 @@ paths:
       tags: [Exports]
       summary: Export the training matrix
       description: |
-        CSV — rows are users, columns are courses, cells are completion status
-        (`PASSED` with date, `BLOCKED`, `IN_PROGRESS`, etc.) for the period.
+        CSV — one row per (user, course) with the status held at `period_end`,
+        sourced from the audit log rather than current state. `course_version_id`
+        is the version the learner was tested on, so a retired version stays
+        correctly represented. Recorded as an `export.training_matrix` event.
       parameters:
         - name: period_start
           in: query
@@ -1118,6 +1128,10 @@ paths:
     get:
       tags: [Exports]
       summary: Export overdue / blocked / expired assignments
+      description: |
+        CSV. `overdue` is derived — past its due date and unsettled as of the
+        date; `blocked` and `expired` are recorded terminal states. Recorded as
+        an `export.exception_report` event.
       parameters:
         - name: as_of
           in: query
