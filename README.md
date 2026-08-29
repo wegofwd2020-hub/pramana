@@ -42,7 +42,7 @@ Full rationale: [`docs/00_architecture.md`](./docs/00_architecture.md).
 | Layer | Mechanism | Fails to… |
 |---|---|---|
 | Application | No code path issues `UPDATE`/`DELETE` on `audit_log` | prevent a compromised operator |
-| Database | `BEFORE UPDATE` trigger `audit_log_no_update` (migration `0001`); app role holds no mutate grant | prevent a superuser |
+| Database | `audit_log_no_update` **and** `audit_log_no_delete` triggers (migration `0001`); app role holds no mutate grant | prevent a superuser |
 | Cryptographic | SHA-256 hash chain over canonical JSON | *nothing* — it detects what the other two missed |
 
 The hash function ([`compute_audit_hash`](./pramana/services/audit.py)) is deliberately
@@ -119,7 +119,7 @@ All design documents live under [`docs/`](./docs).
 | Locked requirements (v1 single-tenant, SOX scope) | ✅ Complete |
 | Repo scaffolding (CI, lint, type-check, security scan) | ✅ Complete |
 | OpenAPI specification for the full pipeline | ✅ Complete |
-| SQLAlchemy 2.x data model + Alembic baseline (0001→0006) | ✅ Complete |
+| SQLAlchemy 2.x data model + Alembic baseline (0001→0007) | ✅ Complete |
 | Tamper-evident audit log (SHA-256 hash chain + append-only DB trigger) | ✅ Complete |
 | Assignment state machine (pure domain, property-based tests) | ✅ Complete |
 | Content approval state machine (separation of duties, hash-pinned attestation) | ✅ Complete |
@@ -132,6 +132,7 @@ All design documents live under [`docs/`](./docs).
 | Content pipeline end-to-end (Create → Manufacture → Approve → Present) | ✅ Complete |
 | Assignment / player / certificate runtime | ✅ Complete |
 | Audit-chain verification tooling and evidence export | ✅ Complete |
+| Role administration (audited grants/revokes + operator bootstrap) | ✅ Complete |
 | S3 Object Lock (WORM) archival of the audit log | ⏳ Planned |
 | Certificate PDF render + framework binder templates | ⏳ Planned |
 | Aggregate CSV reports (population, training matrix, exceptions) | ⏳ Planned |

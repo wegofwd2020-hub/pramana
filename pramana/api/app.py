@@ -17,6 +17,7 @@ from pramana.api import (
     content_drafts,
     content_requests,
     frameworks,
+    roles,
     webhooks,
 )
 from pramana.api.errors import register_exception_handlers
@@ -39,6 +40,7 @@ def create_app() -> FastAPI:
     app.include_router(assignments.router)
     app.include_router(certificates.router)
     app.include_router(audit.router)
+    app.include_router(roles.router)
     app.include_router(audit.evidence_router)
 
     @app.get("/health", tags=["meta"], summary="Liveness probe")

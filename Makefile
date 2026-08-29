@@ -2,7 +2,7 @@
 # Run `make help` for available targets.
 
 .PHONY: help install dev-install lint format type-check test test-cov \
-        pre-commit clean migrate migrate-create run worker security-scan status
+        pre-commit clean migrate migrate-create run worker security-scan status grant-role
 
 PYTHON := python3
 PIP := $(PYTHON) -m pip
@@ -66,6 +66,9 @@ worker:  ## Run a Celery worker.
 
 status:  ## Regenerate the README status table from project-status.yaml.
 	$(PYTHON) scripts/render_status.py
+
+grant-role:  ## Bootstrap a role out of band. Usage: make grant-role email=you@example.com [role=auditor]
+	$(PYTHON) scripts/grant_role.py --email "$(email)" $(if $(role),--role "$(role)",)
 
 check:  ## Run lint + type-check + tests (CI equivalent).
 	$(MAKE) lint

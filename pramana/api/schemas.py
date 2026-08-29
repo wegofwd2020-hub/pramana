@@ -466,6 +466,23 @@ class CertificatePage(BaseModel):
     pagination: Pagination
 
 
+# ---------------------------------------------------------------------------
+# Role administration
+# ---------------------------------------------------------------------------
+class RoleGrantRequest(BaseModel):
+    """The role to grant. Validated against the fixed set in the service."""
+
+    model_config = ConfigDict(extra="forbid")
+    role: str = Field(min_length=1, description="One of the fixed role names.")
+
+
+class UserRolesOut(BaseModel):
+    """A user's current roles, after any change."""
+
+    user_id: uuid.UUID
+    roles: list[str]
+
+
 class CertificateVerification(BaseModel):
     """Public verification result — minimal, no PII beyond the pinned refs."""
 

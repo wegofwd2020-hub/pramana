@@ -130,6 +130,10 @@ GATED: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/content-requests", None, RoleName.CONTENT_AUTHOR),
     ("POST", "/content-requests", _commission_body(), RoleName.CONTENT_AUTHOR),
     ("GET", f"/content-requests/{REQUEST_ID}", None, RoleName.CONTENT_AUTHOR),
+    # Role administration — granting authority is itself a privileged act.
+    ("GET", f"/users/{OTHER_USER}/roles", None, RoleName.COMPLIANCE_ADMIN),
+    ("POST", f"/users/{OTHER_USER}/roles", {"role": "manager"}, RoleName.COMPLIANCE_ADMIN),
+    ("DELETE", f"/users/{OTHER_USER}/roles/manager", None, RoleName.COMPLIANCE_ADMIN),
 ]
 
 IDS = [f"{m} {p.split('?')[0]}" for m, p, _, _ in GATED]
@@ -167,6 +171,20 @@ def test_content_author_cannot_approve() -> None:
     c = client(RoleName.CONTENT_AUTHOR)
     resp = c.post(f"/content-drafts/{DRAFT_ID}/approve", json={"attestation_text": "x"})
     assert resp.status_code == 403
+
+
+def test_auditor_may_read_role_grants_but_not_change_them() -> None:
+    """Who holds which role is access-control evidence, so auditors may read it."""
+    c = client(RoleName.AUDITOR)
+    assert c.get(f"/users/{OTHER_USER}/roles").status_code != 403
+    assert c.post(f"/users/{OTHER_USER}/roles", json={"role": "manager"}).status_code == 403
+    assert c.delete(f"/users/{OTHER_USER}/roles/manager").status_code == 403
+
+
+def test_manager_cannot_administer_roles() -> None:
+    """Assigning training is not authority to hand out authority."""
+    c = client(RoleName.MANAGER)
+    assert c.post(f"/users/{OTHER_USER}/roles", json={"role": "manager"}).status_code == 403
 
 
 def test_auditor_may_read_the_review_queue_but_not_act() -> None:

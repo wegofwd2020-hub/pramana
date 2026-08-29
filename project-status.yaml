@@ -24,7 +24,7 @@ features:
     name: OpenAPI specification for the full pipeline
     status: done
   - id: data-model
-    name: SQLAlchemy 2.x data model + Alembic baseline (0001→0006)
+    name: SQLAlchemy 2.x data model + Alembic baseline (0001→0007)
     status: done
   - id: audit-chain
     name: Tamper-evident audit log (SHA-256 hash chain + append-only DB trigger)
@@ -61,6 +61,9 @@ features:
     status: done
   - id: audit-verification
     name: Audit-chain verification tooling and evidence export
+    status: done
+  - id: role-management
+    name: Role administration (audited grants/revokes + operator bootstrap)
     status: done
   - id: worm-archival
     name: S3 Object Lock (WORM) archival of the audit log
