@@ -88,7 +88,7 @@ All design documents live under [`docs/`](./docs).
 
 | Document | Purpose |
 |---|---|
-| [`docs/00_architecture.md`](./docs/00_architecture.md) | **Start here** — architectural thesis, audit chain, trust boundaries, extensibility model |
+| [`docs/00_architecture.md`](./docs/00_architecture.md) | **Start here** — architectural thesis, audit chain, trust boundaries, authorization model, extensibility |
 | [`docs/01_initial_analysis.md`](./docs/01_initial_analysis.md) | Initial robustness analysis of the original 8 requirements |
 | [`docs/02_resolved_decisions.md`](./docs/02_resolved_decisions.md) | Locked v1 specification |
 | [`docs/03_ai_drafted_human_approved_content.md`](./docs/03_ai_drafted_human_approved_content.md) | AI-drafted / human-approved content workflow |
@@ -157,7 +157,7 @@ course:
 - **Prove** — `/audit/verify` recomputes the whole hash chain, `/audit/export` emits rows
   with their hashes for independent re-verification, and `/evidence/{user_id}` assembles a
   per-user binder. Auditor / compliance-admin only. Pulling an export is itself audited.
-  See [`docs/00_architecture.md` §7](./docs/00_architecture.md#7-proving-it-verification-and-evidence-export).
+  See [`docs/00_architecture.md` §8](./docs/00_architecture.md#8-proving-it-verification-and-evidence-export).
 
 Database schema is managed by Alembic migrations `0001`→`0006`.
 

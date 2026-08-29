@@ -143,7 +143,143 @@ AC4 — *"no definition, no request"* — in
 
 ---
 
-## 4. Extensibility: how a new regulatory domain is added
+## 4. Who may do what: the authorization model
+
+§3 is about trusting *content*. This section is about trusting *callers*.
+
+### 4.1 Authentication: OIDC, and it never creates users
+
+A request carries an OIDC bearer token. `get_principal`
+([`pramana/api/dependencies.py`](../pramana/api/dependencies.py)) extracts it,
+verifies signature plus `iss`/`aud`/`exp` against the issuer's JWKS, and maps the
+`sub` claim to a Pramana user.
+
+The property worth stating loudly: **a validly-signed token is not enough to get
+an account.** On a first login, `_provision_by_email`
+([`pramana/services/auth.py`](../pramana/services/auth.py)) binds `sub` to a user
+that must *already exist*, and refuses if the token carries no email claim, the
+email is explicitly marked unverified, no unique user matches it, the matched
+user is already bound to a different identity, or the user is not active.
+
+This is deliberately narrower than the usual just-in-time provisioning, which
+creates an account for anyone the IdP will vouch for. In a compliance system the
+user list is part of the evidence — "who was required to take this training" is a
+question with a definite answer — so account creation is an administrative act,
+not a side effect of someone logging in.
+
+The bind itself is audited as `user.sso_bound`. Gaining authenticated access is
+an access-control event, and the SOX trail should show who acquired access and
+when, not only what they did afterwards.
+
+### 4.2 Machine-to-machine: HMAC, no principal
+
+Two routes are not called by people and have no principal at all:
+
+| Route | Secret |
+|---|---|
+| `POST /consumer-library/packages` (ingest) | `MENTIBLE_PACKAGE_HMAC_SECRET` |
+| `POST /webhooks/mentible/progress` | `MENTIBLE_WEBHOOK_HMAC_SECRET` |
+
+The secrets are **separate on purpose**, so the two rotate independently
+([`config.py`](../pramana/config.py)). The separation also bounds a compromise:
+the channels carry very different authority — one delivers content that will
+become training material, the other only moves a progress percentage — so leaking
+the low-value secret must not confer the high-value capability.
+
+Neither route resolves a `Principal`, so neither is subject to §4.3. Their
+authorization *is* the signature check.
+
+### 4.3 Three layers, answering three different questions
+
+Authorization is not one check. Three distinct questions are asked in three
+distinct places:
+
+| Question | Mechanism | Lives in |
+|---|---|---|
+| May you do this *kind* of thing? | `require_roles` | router |
+| Is this *yours*? | `_load_owned`, `get_assignment_for_reader` | service |
+| Does this violate a *control*? | `SeparationOfDutiesError` | pure domain |
+
+None of the three subsumes another, which is why all three exist:
+
+- A **role** check cannot answer "is this yours". Every trainee holds the same
+  role; the difference between reading your own training record and reading a
+  colleague's is data, not vocabulary.
+- An **ownership** check cannot answer "should a content author approve the draft
+  they generated". Both users are legitimate actors on that draft. What is wrong
+  is the *combination*, which is a rule about the transition, not about the
+  caller.
+- A **domain control** cannot be enforced at the router, because the router does
+  not know who generated the draft without loading it.
+
+Each check also lives where it cannot be skipped by the layer above forgetting.
+Ownership sits next to the data load rather than in the handler — the learner
+endpoints are safe precisely because `_load_owned` is the only way they obtain an
+assignment. When two read endpoints bypassed it and called `get_assignment`
+directly, they leaked across users until `get_assignment_for_reader` gave them an
+ownership-aware door of their own.
+
+Separation of duties lives in the pure domain
+([`content_approval.py`](../pramana/domain/content_approval.py)) for the same
+reason the hash function does: it is the control an auditor asks about first, and
+it should be provable by exhaustive test without a database, an HTTP layer, or a
+configured role table.
+
+Note what this means for the service layer: `get_assignment_for_reader` takes
+`may_read_others: bool`, not a `Principal`. The router decides *whether the caller
+is staff*; the service only knows *whether this caller may see other people's
+records*. Role vocabulary stays at the edge, so changing the role names later
+touches routers only.
+
+### 4.4 Roles
+
+Five fixed roles, seeded in the database and loaded onto the `Principal`
+(`Role`/`UserRole` in [`identity.py`](../pramana/db/models/identity.py)):
+
+| Role | May |
+|---|---|
+| `trainee` | Take their own assigned training; read their own records |
+| `manager` | Assign and cancel training; read across users |
+| `content_author` | Commission content, submit drafts for review, regenerate |
+| `compliance_admin` | Everything authoring, plus **approve / reject / publish** |
+| `auditor` | Read the audit chain, verify it, export evidence; read the review queue |
+
+Approval and publication are `compliance_admin` only. Separation of duties would
+already stop an author approving *their own* draft, but restricting the role is a
+second, independent line: peer approval among authors is a defensible policy, and
+it is not the one this deployment chose.
+
+Learner self-service routes (`/assignments/me`, attempts, submit, player,
+progress) carry **no** role requirement. They are ownership-gated instead, so a
+user with no roles at all can still complete assigned training — which matters,
+because roles are administered manually today (§4.6).
+
+### 4.5 Public by design
+
+`GET /certificates/verify/{code}` is unauthenticated, deliberately. The
+verification code *is* the credential, and the response carries only the minimal
+non-PII facts an external verifier needs — validity, course version, issue and
+expiry. A regulator or counterparty checking a certificate should not need an
+account in the system that issued it.
+
+### 4.6 Known gaps
+
+Stated rather than left to be discovered:
+
+- **No role-management endpoints.** Roles are seeded and granted directly in the
+  database. `TICKETS/PR-3` remains open on exactly this: its acceptance criterion
+  that role changes be audited cannot be met by an API that does not exist. Until
+  it does, role grants are an out-of-band act and the audit trail does not cover
+  them — the one hole in an otherwise complete access-control record.
+- **Tenant isolation is query-level, not enforced by the database.** Every read
+  filters on `tenant_id=caller.tenant_id`, but nothing stops a future query from
+  omitting it. Row-level security is deferred past v1 (single-tenant). The
+  `tenant_id` column exists on every table from day one so enabling RLS is a
+  policy change rather than a migration of the whole schema.
+
+---
+
+## 5. Extensibility: how a new regulatory domain is added
 
 The claim is that business teams can define training for a new regulatory domain without
 core reengineering. Concretely, the mechanism is this:
@@ -167,7 +303,7 @@ Six framework references exist today: SOX, FCPA, HIPAA, GDPR, ISO 27001, PCI DSS
 is in v1 scope; the rest are authored so the engine can be exercised against them. See
 [`docs/frameworks/regulatory_frameworks_index.md`](./frameworks/regulatory_frameworks_index.md).
 
-### 4.1 What extensibility does *not* mean
+### 5.1 What extensibility does *not* mean
 
 Stated plainly, because overclaiming here is how compliance products lose credibility:
 
@@ -183,7 +319,7 @@ Stated plainly, because overclaiming here is how compliance products lose credib
 
 ---
 
-## 5. The pure-domain pattern
+## 6. The pure-domain pattern
 
 Business rules live in `pramana/domain/` as pure modules: no database, no HTTP, no I/O.
 Each is a function over an immutable snapshot dataclass:
@@ -207,7 +343,7 @@ The service layer (`pramana/services/`) holds the I/O shells. The API layer
 
 ---
 
-## 6. Content pipeline
+## 7. Content pipeline
 
 ```
 Create ──────────▶ Manufacture ──────▶ Approve ─────────▶ Present
@@ -233,11 +369,11 @@ duplicate or out-of-order delivery is safe.
 The pipeline hands off to the learner runtime: an assignment pins the course
 version, the player gates the quiz on watch progress, submission grades
 server-side and issues a certificate, and every transition appends to the audit
-chain. That chain is what §7 then makes checkable.
+chain. That chain is what §8 then makes checkable.
 
 ---
 
-## 7. Proving it: verification and evidence export
+## 8. Proving it: verification and evidence export
 
 §2 argues that hash-chaining makes tampering detectable. This section is where
 that claim is cashed: a chain nobody can check is a claim, not a control.
@@ -278,8 +414,7 @@ can run it over an export, in their own process, without the application.
 | `GET /audit/export` | Export rows **with their hashes**, as JSON or CSV, for independent re-verification |
 | `GET /evidence/{user_id}` | Assemble a per-user binder: assignments, attempts, certificates, and the audit entries behind them |
 
-All four are gated to the `auditor` and `compliance_admin` roles
-(`require_roles` in [`pramana/api/dependencies.py`](../pramana/api/dependencies.py)).
+All four are gated to the `auditor` and `compliance_admin` roles (§4.3).
 
 Two details that matter for a compliance product:
 
@@ -304,7 +439,7 @@ tenant a verifiable export.
 
 ---
 
-## 8. Version pinning throughout
+## 9. Version pinning throughout
 
 A recurring pattern worth naming, because it is the second-order defence behind the audit
 chain: **nothing that has been used as evidence can be changed underneath it.**
@@ -322,7 +457,7 @@ without version-pinning what it references would be a lock on a door with no wal
 
 ---
 
-## 9. Stack
+## 10. Stack
 
 | Concern | Choice |
 |---|---|
@@ -341,7 +476,7 @@ migration of every table.
 
 ---
 
-## 10. Current state
+## 11. Current state
 
 Everything described above is built. The loop closes end to end — a regulation is
 commissioned, manufactured, human-approved, published, assigned, played, graded,
@@ -349,7 +484,7 @@ certified, and the resulting evidence can be independently verified — and it i
 covered by tests, including an integration layer against real Postgres.
 
 Deliberately not built yet: WORM archival to S3 Object Lock (§2.4), certificate
-PDF rendering, aggregate CSV reporting, and per-tenant verifiable exports (§7.3).
+PDF rendering, aggregate CSV reporting, and per-tenant verifiable exports (§8.3).
 
 **Authoritative status lives in
 [`../project-status.yaml`](../project-status.yaml)**, which a dashboard reads and
@@ -358,7 +493,7 @@ readers. This section is prose and will drift — trust the manifest.
 
 ---
 
-## 11. Related documents
+## 12. Related documents
 
 | Document | Purpose |
 |---|---|
