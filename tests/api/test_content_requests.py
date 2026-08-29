@@ -12,9 +12,11 @@ from collections.abc import Iterator
 from fastapi.testclient import TestClient
 
 from pramana.api.app import create_app
-from pramana.api.dependencies import get_content_request_service
+from pramana.api.dependencies import get_content_request_service, get_principal
 from pramana.db.models.content_request import ContentRequest
+from pramana.db.models.identity import RoleName
 from pramana.exceptions import ExternalServiceError, NotFoundError, ValidationError
+from pramana.services.auth import Principal
 
 
 def make_request(status: str = "requested") -> ContentRequest:
@@ -79,6 +81,13 @@ class FakeService:
 def client(service: FakeService) -> Iterator[TestClient]:
     app = create_app()
     app.dependency_overrides[get_content_request_service] = lambda: service
+    # Commissioning is gated to authoring roles; authorization itself is covered
+    # in tests/api/test_rbac.py, so these stay about routing and status mapping.
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        user_id=uuid.uuid4(),
+        tenant_id=uuid.uuid4(),
+        roles=frozenset({RoleName.CONTENT_AUTHOR}),
+    )
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()

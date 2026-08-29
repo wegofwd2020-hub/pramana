@@ -444,6 +444,29 @@ async def _load_owned(
     return assignment
 
 
+async def get_assignment_for_reader(
+    session: AsyncSession,
+    *,
+    assignment_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    acting_user_id: uuid.UUID,
+    may_read_others: bool,
+) -> Assignment:
+    """Load an assignment the caller is allowed to *read*.
+
+    Wider than :func:`_load_owned`, which gates the learner's own actions: a
+    manager, compliance admin, or auditor may read anyone's. Whether the caller
+    holds such a role is decided at the HTTP layer and passed in, so this module
+    stays free of role vocabulary.
+    """
+    assignment = await get_assignment(session, assignment_id=assignment_id, tenant_id=tenant_id)
+    if not may_read_others and assignment.user_id != acting_user_id:
+        raise AuthorizationError(
+            "not your assignment", context={"assignment_id": str(assignment_id)}
+        )
+    return assignment
+
+
 async def _in_progress_attempt(session: AsyncSession, assignment_id: uuid.UUID) -> Attempt | None:
     return (
         await session.execute(

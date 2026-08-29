@@ -12,14 +12,16 @@ from collections.abc import Iterator
 from fastapi.testclient import TestClient
 
 from pramana.api.app import create_app
-from pramana.api.dependencies import get_content_review_service
+from pramana.api.dependencies import get_content_review_service, get_principal
 from pramana.db.models.content import ContentDraft
 from pramana.db.models.course import CourseVersion
+from pramana.db.models.identity import RoleName
 from pramana.exceptions import (
     InvalidStateTransitionError,
     NotFoundError,
     SeparationOfDutiesError,
 )
+from pramana.services.auth import Principal
 
 
 def make_draft(status: str = "received") -> ContentDraft:
@@ -83,6 +85,14 @@ class FakeService:
 def client(service: FakeService) -> Iterator[TestClient]:
     app = create_app()
     app.dependency_overrides[get_content_review_service] = lambda: service
+    # A compliance admin holds every role this router gates on, so these tests
+    # stay about routing and status mapping. Authorization itself is covered in
+    # tests/api/test_rbac.py.
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        user_id=uuid.uuid4(),
+        tenant_id=uuid.uuid4(),
+        roles=frozenset({RoleName.COMPLIANCE_ADMIN}),
+    )
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
@@ -209,6 +219,11 @@ def test_regenerate_returns_202_content_request() -> None:
 
     app = create_app()
     app.dependency_overrides[get_content_request_service] = lambda: FakeRequests()
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        user_id=uuid.uuid4(),
+        tenant_id=uuid.uuid4(),
+        roles=frozenset({RoleName.CONTENT_AUTHOR}),
+    )
     with TestClient(app) as c:
         resp = c.post(
             f"/content-drafts/{uuid.uuid4()}/regenerate",
