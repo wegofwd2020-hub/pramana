@@ -485,8 +485,39 @@ can run it over an export, in their own process, without the application.
 | `GET /audit` | Search the log by entity, event type, actor, or time window |
 | `GET /audit/export` | Export rows **with their hashes**, as JSON or CSV, for independent re-verification |
 | `GET /evidence/{user_id}` | Assemble a per-user binder: assignments, attempts, certificates, and the audit entries behind them |
+| `GET /exports/population` | The in-scope population as CSV |
+| `GET /exports/training-matrix` | Users against courses, with the status each held at `period_end` |
+| `GET /exports/exception-report` | Overdue, blocked, and expired assignments |
 
-All four are gated to the `auditor` and `compliance_admin` roles (§4.3).
+All are gated to the `auditor` and `compliance_admin` roles (§4.3).
+
+`US-SOX-0006` names the four artifacts a §404 assessment needs — population list,
+training matrix, sample evidence packages, exception report — and the surface above
+is exactly that set: the binder is the sample package, the three CSVs are the rest.
+
+### 7.3 Reports are sourced from history, not current state
+
+The reports could have been built by querying `assignment.status`. They are not, and
+the difference is the whole point of them.
+
+Current state answers *what is true now*. An auditor is asking *what was true during
+the period*, and the two diverge the moment anything changes afterwards — a course
+version retired, an assignment cancelled, a learner reassigned. So status comes from
+the audit log: for each assignment, the last `assignment.*` entry at or before the
+as-of date, resolved by `audit_id` rather than timestamp so events sharing a second
+still order deterministically.
+
+Identity — `user_id`, `course_id`, `course_version_id` — is joined from the
+`assignment` row instead, which is safe precisely because those columns are
+immutable. The mutable field is the one the log supplies. This is the same
+version-pinning discipline as §9, applied to reading rather than writing.
+
+**One limit, stated where it will be read.** User attributes are *not* historised:
+nothing records changes to employment status or department, and no code path mutates
+them today. So `as_of` is genuinely point-in-time for training state and
+current-value for the person. The population export names that column
+`user_status_current`, so a reader meets the caveat in the file rather than in a
+document they may never open.
 
 Two details that matter for a compliance product:
 
@@ -498,7 +529,7 @@ Two details that matter for a compliance product:
   architecture exists to avoid. With hashes attached, the recipient can re-run
   the verification themselves.
 
-### 7.3 Known limit: the chain is global
+### 7.4 Known limit: the chain is global
 
 There is one chain per deployment, not one per tenant. In the single-tenant v1
 that is exactly right. Multi-tenant, it is not: a per-tenant export cannot be
@@ -556,7 +587,7 @@ certified, and the resulting evidence can be independently verified — and it i
 covered by tests, including an integration layer against real Postgres.
 
 Deliberately not built yet: certificate
-PDF rendering, aggregate CSV reporting, and per-tenant verifiable exports (§8.3).
+PDF rendering, aggregate CSV reporting, and per-tenant verifiable exports (§7.4).
 
 **Authoritative status lives in
 [`../project-status.yaml`](../project-status.yaml)**, which a dashboard reads and

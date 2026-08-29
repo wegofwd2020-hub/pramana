@@ -130,6 +130,15 @@ GATED: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/content-requests", None, RoleName.CONTENT_AUTHOR),
     ("POST", "/content-requests", _commission_body(), RoleName.CONTENT_AUTHOR),
     ("GET", f"/content-requests/{REQUEST_ID}", None, RoleName.CONTENT_AUTHOR),
+    # Auditor exports — the SOX §404 artifacts.
+    ("GET", "/exports/population", None, RoleName.AUDITOR),
+    (
+        "GET",
+        "/exports/training-matrix?period_start=2026-01-01&period_end=2026-12-31",
+        None,
+        RoleName.AUDITOR,
+    ),
+    ("GET", "/exports/exception-report", None, RoleName.AUDITOR),
     # Role administration — granting authority is itself a privileged act.
     ("GET", f"/users/{OTHER_USER}/roles", None, RoleName.COMPLIANCE_ADMIN),
     ("POST", f"/users/{OTHER_USER}/roles", {"role": "manager"}, RoleName.COMPLIANCE_ADMIN),
@@ -179,6 +188,17 @@ def test_auditor_may_read_role_grants_but_not_change_them() -> None:
     assert c.get(f"/users/{OTHER_USER}/roles").status_code != 403
     assert c.post(f"/users/{OTHER_USER}/roles", json={"role": "manager"}).status_code == 403
     assert c.delete(f"/users/{OTHER_USER}/roles/manager").status_code == 403
+
+
+def test_manager_cannot_run_auditor_exports() -> None:
+    """Supervising a team is not authority to export the whole population."""
+    c = client(RoleName.MANAGER)
+    assert c.get("/exports/population").status_code == 403
+
+
+def test_compliance_admin_may_run_exports() -> None:
+    c = client(RoleName.COMPLIANCE_ADMIN)
+    assert c.get("/exports/population").status_code != 403
 
 
 def test_manager_cannot_administer_roles() -> None:
