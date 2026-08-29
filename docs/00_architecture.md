@@ -230,9 +230,81 @@ are idempotent and never regress — a progress event that races behind the
 package's arrival is dropped, and the reported percent is monotonic — so
 duplicate or out-of-order delivery is safe.
 
+The pipeline hands off to the learner runtime: an assignment pins the course
+version, the player gates the quiz on watch progress, submission grades
+server-side and issues a certificate, and every transition appends to the audit
+chain. That chain is what §7 then makes checkable.
+
 ---
 
-## 7. Version pinning throughout
+## 7. Proving it: verification and evidence export
+
+§2 argues that hash-chaining makes tampering detectable. This section is where
+that claim is cashed: a chain nobody can check is a claim, not a control.
+
+### 7.1 Chain verification
+
+`verify_chain()` in
+[`pramana/domain/audit_verification.py`](../pramana/domain/audit_verification.py)
+walks the chain in ascending `audit_id` order and checks two independent things
+per row:
+
+- **Link continuity** — the row's stored `prev_audit_hash` must equal the actual
+  predecessor's hash. A failure means rows were deleted, reordered, or inserted:
+  `broken_link`.
+- **Content integrity** — recomputing the row's hash from its own fields must
+  reproduce the stored `audit_hash`. A failure means a row's contents were
+  edited: `hash_mismatch`.
+
+The two catch different attacks, which is why both exist. Editing a row's payload
+trips the second; excising a row entirely trips the first.
+
+Verification returns at the **first** break rather than collecting all of them.
+Once continuity is lost, every subsequent row mismatches as a consequence, so a
+full list would report one tampering event as thousands of findings and bury the
+row that actually matters. The interesting fact is *where the chain first stops
+being trustworthy*.
+
+Like the hash function it builds on, `verify_chain` is **pure** — it takes a
+sequence of rows and returns a verdict, with no session and no I/O. An auditor
+can run it over an export, in their own process, without the application.
+
+### 7.2 The auditor surface
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /audit/verify` | Recompute and verify the stored chain; reports intact, or the first break and its reason |
+| `GET /audit` | Search the log by entity, event type, actor, or time window |
+| `GET /audit/export` | Export rows **with their hashes**, as JSON or CSV, for independent re-verification |
+| `GET /evidence/{user_id}` | Assemble a per-user binder: assignments, attempts, certificates, and the audit entries behind them |
+
+All four are gated to the `auditor` and `compliance_admin` roles
+(`require_roles` in [`pramana/api/dependencies.py`](../pramana/api/dependencies.py)).
+
+Two details that matter for a compliance product:
+
+- **Export is itself audited.** Pulling evidence appends an `audit.exported`
+  entry. Who read the records is part of the record — an auditor's own access is
+  as attributable as anyone else's.
+- **Export carries the hashes.** Exporting the rows without them would produce a
+  document that has to be taken on trust, which is precisely what the
+  architecture exists to avoid. With hashes attached, the recipient can re-run
+  the verification themselves.
+
+### 7.3 Known limit: the chain is global
+
+There is one chain per deployment, not one per tenant. In the single-tenant v1
+that is exactly right. Multi-tenant, it is not: a per-tenant export cannot be
+independently re-verified, because the rows it omits are load-bearing links in
+the chain it came from.
+
+The fix is per-tenant chains or Merkle inclusion proofs, and it is a v2 concern —
+recorded here rather than discovered later by whoever first tries to hand one
+tenant a verifiable export.
+
+---
+
+## 8. Version pinning throughout
 
 A recurring pattern worth naming, because it is the second-order defence behind the audit
 chain: **nothing that has been used as evidence can be changed underneath it.**
@@ -250,17 +322,17 @@ without version-pinning what it references would be a lock on a door with no wal
 
 ---
 
-## 8. Stack
+## 9. Stack
 
 | Concern | Choice |
 |---|---|
 | Language | Python 3.12+ |
 | Web | FastAPI |
-| Persistence | PostgreSQL 16+, SQLAlchemy 2.x, Alembic |
+| Persistence | PostgreSQL 16+, SQLAlchemy 2.x, Alembic (`0001`→`0006`) |
 | Background jobs | Celery + Redis |
 | Auth | OIDC / SAML SSO (OIDC bearer-token verification implemented) |
 | Object storage | AWS S3 (Object Lock for audit archive — planned) |
-| Testing | pytest, pytest-asyncio, factory_boy, Hypothesis |
+| Testing | pytest, pytest-asyncio, factory_boy, Hypothesis; integration layer against real Postgres |
 
 Multi-tenant readiness: `tenant_id` is carried on the data model from day one, but
 row-level isolation enforcement is deliberately deferred past v1 (single-tenant
@@ -269,17 +341,24 @@ migration of every table.
 
 ---
 
-## 9. Current state
+## 10. Current state
 
-This document describes the designed architecture. For what is actually built versus
-designed, see the status table in [`../README.md`](../README.md) and
-[`../project-status.yaml`](../project-status.yaml). The audit hash chain, approval state
-machine, assignment state machine, data model, and content-pipeline endpoints exist; the
-learner runtime (player, certificates, evidence exports) does not yet.
+Everything described above is built. The loop closes end to end — a regulation is
+commissioned, manufactured, human-approved, published, assigned, played, graded,
+certified, and the resulting evidence can be independently verified — and it is
+covered by tests, including an integration layer against real Postgres.
+
+Deliberately not built yet: WORM archival to S3 Object Lock (§2.4), certificate
+PDF rendering, aggregate CSV reporting, and per-tenant verifiable exports (§7.3).
+
+**Authoritative status lives in
+[`../project-status.yaml`](../project-status.yaml)**, which a dashboard reads and
+which is therefore kept current; [`../README.md`](../README.md) mirrors it for
+readers. This section is prose and will drift — trust the manifest.
 
 ---
 
-## 10. Related documents
+## 11. Related documents
 
 | Document | Purpose |
 |---|---|
