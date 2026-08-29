@@ -69,28 +69,68 @@ that permits an independent re-implementation to agree.
 
 ### 2.3 Defence in depth on immutability
 
-Three independent layers, each sufficient to detect (or prevent) tampering alone:
+Four independent layers, each sufficient to detect (or prevent) tampering alone:
 
 1. **Application** — no code path issues `UPDATE` or `DELETE` on `audit_log`.
 2. **Database** — two triggers, `audit_log_no_update` and `audit_log_no_delete`
    (created in [`alembic/versions/0001_initial.py`](../alembic/versions/0001_initial.py)),
    raise on any `UPDATE` or `DELETE`. Both matter: forbidding edits while permitting
-   deletes would leave the log trivially rewritable by excision. The application role is
-   additionally intended to hold no `UPDATE`/`DELETE` grant on the table (see
-   `SECURITY.md` §3; tracked as `TICKETS/PR-1`).
+   deletes would leave the log trivially rewritable by excision. Migration `0009`
+   additionally narrows the application role to `SELECT`/`INSERT` — but only when
+   `APP_DB_ROLE` names a role separate from the schema owner. In a single-role
+   deployment it cannot be applied at all, because a Postgres owner keeps its
+   privileges regardless of `REVOKE`. That makes it a deployment topology question;
+   see `SECURITY.md` §3 and `TICKETS/PR-1`.
 3. **Cryptographic** — the chain makes any mutation that *did* somehow land detectable
    after the fact.
+4. **Off-database** — segments are mirrored to WORM storage (§2.4), so a log that is
+   dropped or rolled back to an older copy is still recoverable and still checkable.
 
 Layers 1 and 2 prevent. Layer 3 is what you rely on when you assume 1 and 2 failed —
-including the case where the operator is the adversary.
+including the case where the operator is the adversary. Layer 4 is what you rely on when
+the database itself is gone or disputed.
 
 `audit_id` is `BIGINT IDENTITY(always)` so ordering is database-assigned and monotonic;
 the chain cannot be reordered by clock skew or a lying client.
 
-### 2.4 Planned: WORM archival
+### 2.4 WORM archival
 
-Rows mirror to S3 with Object Lock for immutable off-database archival. Designed, not yet
-built — see the status table in [`../README.md`](../README.md).
+The chain proves the log has not been *altered where it sits*. It says nothing about a log
+that has been dropped, restored from an older backup, or lost with the database. Mirroring
+to write-once storage answers that, and it is the defence that survives losing the
+database entirely.
+
+Rows are mirrored to S3 under Object Lock in **segments**: an NDJSON object of rows
+carrying their own hashes — the same shape `verify_chain` consumes — plus a manifest
+recording the id range, the row count, the hash the segment *follows*, and the hash it
+*ends on*.
+
+That last pair is the point. Verifying rows alone would prove each object internally
+intact while saying nothing about whether an object had been quietly dropped. Because each
+manifest pins both boundaries, **consecutive segments link exactly the way consecutive rows
+do**, and a missing segment is as detectable as a missing row.
+[`pramana/domain/audit_archive.py`](../pramana/domain/audit_archive.py) is pure, for the
+same reason the hash function is: an auditor holding only the objects must be able to
+re-verify them without running Pramana.
+
+Retention is `COMPLIANCE` mode, not `GOVERNANCE`. Under governance a principal with the
+right permission can shorten or remove the lock, which makes the archive exactly as
+trustworthy as whoever holds that permission; compliance mode cannot be overridden by
+anyone, including the account root, until the retention date passes. The irreversibility
+*is* the control.
+
+Archival runs as an idempotent, resumable operation
+([`scripts/archive_audit.py`](../scripts/archive_audit.py), `make archive-audit`) rather
+than a background job — there is no Celery app in this repo, and one is not needed for
+work that is safe to run twice. Scheduling is left to the deployment.
+
+Two limits worth stating:
+
+- **The bucket must be created with Object Lock enabled.** It cannot be turned on
+  afterwards, and no code here can do it. See `SECURITY.md`.
+- **Archival lags.** Between a row being written and its segment being stored, that row
+  exists only in the database. The window is the schedule interval; the triggers and the
+  chain cover it, but WORM does not.
 
 ---
 
@@ -495,7 +535,7 @@ without version-pinning what it references would be a lock on a door with no wal
 |---|---|
 | Language | Python 3.12+ |
 | Web | FastAPI |
-| Persistence | PostgreSQL 16+, SQLAlchemy 2.x, Alembic (`0001`→`0007`) |
+| Persistence | PostgreSQL 16+, SQLAlchemy 2.x, Alembic (`0001`→`0009`) |
 | Background jobs | Celery + Redis |
 | Auth | OIDC / SAML SSO (OIDC bearer-token verification implemented) |
 | Object storage | AWS S3 (Object Lock for audit archive — planned) |
@@ -515,7 +555,7 @@ commissioned, manufactured, human-approved, published, assigned, played, graded,
 certified, and the resulting evidence can be independently verified — and it is
 covered by tests, including an integration layer against real Postgres.
 
-Deliberately not built yet: WORM archival to S3 Object Lock (§2.4), certificate
+Deliberately not built yet: certificate
 PDF rendering, aggregate CSV reporting, and per-tenant verifiable exports (§8.3).
 
 **Authoritative status lives in

@@ -13,7 +13,7 @@ from pramana.db.models.assignment import (
     AttemptAnswer,
     Certificate,
 )
-from pramana.db.models.audit import AuditLog
+from pramana.db.models.audit import AuditArchiveSegment, AuditLog
 from pramana.db.models.content import ContentDraft
 from pramana.db.models.content_request import ContentRequest
 from pramana.db.models.course import (
@@ -57,5 +57,6 @@ __all__ = [  # noqa: RUF022 - grouped by domain, not alphabetical
     "AttemptAnswer",
     "Certificate",
     # Audit
+    "AuditArchiveSegment",
     "AuditLog",
 ]

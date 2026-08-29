@@ -110,6 +110,14 @@ class Settings(BaseSettings):
     aws_access_key_id: str = ""
     aws_secret_access_key: SecretStr = SecretStr("")
 
+    # Database role the application connects as at runtime, when it is *not* the
+    # role that owns the schema. Migration 0009 narrows its rights on audit_log
+    # to SELECT/INSERT. Empty means single-role deployment and the migration
+    # skips: Postgres owners keep their privileges regardless of REVOKE, so
+    # there is nothing a migration can usefully do in that topology.
+    # See SECURITY.md §3 and TICKETS/PR-1.
+    app_db_role: str = ""
+
     # Email
     smtp_host: str = "localhost"
     smtp_port: Annotated[int, Field(ge=1, le=65535)] = 1025

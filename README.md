@@ -42,8 +42,9 @@ Full rationale: [`docs/00_architecture.md`](./docs/00_architecture.md).
 | Layer | Mechanism | Fails to… |
 |---|---|---|
 | Application | No code path issues `UPDATE`/`DELETE` on `audit_log` | prevent a compromised operator |
-| Database | `audit_log_no_update` **and** `audit_log_no_delete` triggers (migration `0001`); app role holds no mutate grant | prevent a superuser |
-| Cryptographic | SHA-256 hash chain over canonical JSON | *nothing* — it detects what the other two missed |
+| Database | `audit_log_no_update` **and** `audit_log_no_delete` triggers (migration `0001`); app role narrowed to `SELECT`/`INSERT` where the deployment uses a separate role | prevent a superuser |
+| Cryptographic | SHA-256 hash chain over canonical JSON | survive the database being lost or replaced wholesale |
+| Off-database | Segments mirrored to S3 Object Lock (`COMPLIANCE`, 7 years) | *nothing* — it is what remains when the other three are gone |
 
 The hash function ([`compute_audit_hash`](./pramana/services/audit.py)) is deliberately
 **pure** — no session, no I/O — so an auditor can recompute hashes from exported rows
@@ -105,7 +106,7 @@ All design documents live under [`docs/`](./docs).
 > commission → ingest → human approval → publish → assign → play → grade → certify →
 > **verify**. That loop works end to end and is covered by tests against real Postgres.
 > First release is scoped to **SOX** for a single named client, and it is **not yet
-> deployed**. What remains is follow-on work — WORM archival, certificate PDFs, aggregate
+> deployed**. What remains is follow-on work — certificate PDFs and aggregate
 > reporting — not core capability.
 
 > **The table below is generated** from [`project-status.yaml`](./project-status.yaml),
@@ -119,7 +120,7 @@ All design documents live under [`docs/`](./docs).
 | Locked requirements (v1 single-tenant, SOX scope) | ✅ Complete |
 | Repo scaffolding (CI, lint, type-check, security scan) | ✅ Complete |
 | OpenAPI specification for the full pipeline | ✅ Complete |
-| SQLAlchemy 2.x data model + Alembic baseline (0001→0007) | ✅ Complete |
+| SQLAlchemy 2.x data model + Alembic baseline (0001→0009) | ✅ Complete |
 | Tamper-evident audit log (SHA-256 hash chain + append-only DB trigger) | ✅ Complete |
 | Assignment state machine (pure domain, property-based tests) | ✅ Complete |
 | Content approval state machine (separation of duties, hash-pinned attestation) | ✅ Complete |
@@ -133,7 +134,7 @@ All design documents live under [`docs/`](./docs).
 | Assignment / player / certificate runtime | ✅ Complete |
 | Audit-chain verification tooling and evidence export | ✅ Complete |
 | Role administration (audited grants/revokes + operator bootstrap) | ✅ Complete |
-| S3 Object Lock (WORM) archival of the audit log | ⏳ Planned |
+| S3 Object Lock (WORM) archival of the audit log | ✅ Complete |
 | Certificate PDF render + framework binder templates | ⏳ Planned |
 | Aggregate CSV reports (population, training matrix, exceptions) | ⏳ Planned |
 
