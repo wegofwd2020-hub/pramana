@@ -60,6 +60,70 @@
 - Explicit exception handling; never leak stack traces or secrets in errors (matches WeGoFwd coding standards).
 - Secrets from a secret manager / env, never in source.
 
+## 3a. Wiring an identity provider (OIDC)
+
+Pramana **verifies** tokens; it never issues them. There is no login route and no
+authorization-code flow — `SSO_CLIENT_ID`/`SSO_CLIENT_SECRET` exist in config but
+no code reads them. An IdP must therefore be configured before anyone can use the
+API at all.
+
+Set three values and check them with `python scripts/check_oidc.py`, which
+reports *which* step failed rather than leaving you with an opaque 401:
+
+```
+SSO_ISSUER_URL=https://<tenant>.auth0.com/
+JWT_AUDIENCE=<the API identifier you register>
+OIDC_EMAIL_CLAIM=https://pramana.mambakkam.net/email
+```
+
+### The Auth0 trap: access tokens carry no email
+
+First login binds an IdP `sub` to an existing user **by email**. Auth0 access
+tokens for a custom API do not include `email` — that is on the *ID* token. An
+API access token carries `iss`, `sub`, `aud`, `iat`, `exp`, `scope`, `azp`.
+
+Without the claim, every first login fails with *"the token carries no email to
+match it"*, and since users must be pre-provisioned, nobody can ever bind.
+
+Auth0 also **silently drops custom claims that are not namespaced**, so the claim
+must look like a URL. Add a post-login Action:
+
+```js
+exports.onExecutePostLogin = async (event, api) => {
+  const ns = "https://pramana.mambakkam.net/";
+  if (event.authorization) {
+    api.accessToken.setCustomClaim(ns + "email", event.user.email);
+    api.accessToken.setCustomClaim(ns + "email_verified", event.user.email_verified);
+  }
+};
+```
+
+Then set `OIDC_EMAIL_CLAIM` to that namespaced name. There is deliberately **no
+fallback** to plain `email`: a deployment that believes it reads a namespaced
+claim must not silently match on whatever else the token happens to carry.
+
+### Setup steps (Auth0 console — cannot be automated from here)
+
+1. Create a tenant.
+2. **Applications → APIs → Create API.** The *Identifier* you choose becomes
+   `JWT_AUDIENCE`; use a URI such as `https://pramana.mambakkam.net/api`. Signing
+   algorithm **RS256**.
+3. Create an application for whatever will obtain tokens, authorised for that API.
+4. **Actions → Library → Build Custom**, post-login trigger, body above. Deploy
+   it and add it to the Login flow.
+5. Run `scripts/check_oidc.py --token "<a real token>"`. It must report the email
+   claim present.
+
+### Before the first login works
+
+Authentication **never creates users** (§3, and `docs/00_architecture.md` §4.1).
+A validly-signed token for an unknown email is refused. So:
+
+1. Seed user rows whose `email` matches the IdP identities.
+2. `make grant-role email=you@example.com` for the first compliance admin —
+   without it every privileged route refuses everyone, including the route that
+   grants roles.
+
 ## 4. Threat model (STRIDE-lite)
 
 | Threat | Example | Mitigation |

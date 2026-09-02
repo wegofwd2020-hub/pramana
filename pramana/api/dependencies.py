@@ -209,7 +209,9 @@ async def get_principal(
     """
     token = _bearer_token(request)
     claims = await verifier.verify(token)
-    return await resolve_principal(session, claims, now=utcnow())
+    return await resolve_principal(
+        session, claims, now=utcnow(), email_claim=get_settings().oidc_email_claim
+    )
 
 
 def require_roles(*names: str) -> Callable[[Principal], Principal]:

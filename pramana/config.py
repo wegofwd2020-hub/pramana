@@ -101,6 +101,12 @@ class Settings(BaseSettings):
     sso_client_secret: SecretStr = SecretStr("")
     jwt_algorithm: str = "RS256"
     jwt_audience: str = "pramana"
+    # Claim carrying the email at first login. Auth0 access tokens do not include
+    # `email` — it is on the ID token — so an API deployment adds it via a
+    # post-login Action, and Auth0 requires custom claims to be namespaced:
+    #   OIDC_EMAIL_CLAIM=https://pramana.mambakkam.net/email
+    # There is no fallback: a configured claim that is missing fails the login.
+    oidc_email_claim: str = "email"
 
     # Object storage
     s3_bucket_video: str = "pramana-video-dev"
