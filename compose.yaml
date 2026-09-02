@@ -1,0 +1,81 @@
+# Local stack: Postgres, a one-shot migration step, then the API.
+#
+#   docker compose up --build
+#
+# The ordering is the point. `api` waits for `migrate` to *complete
+# successfully*, not merely to start, so the application never comes up against
+# an unmigrated schema. Migrations are their own service rather than part of the
+# API entrypoint: with more than one replica an entrypoint migration races, and
+# 0007 (role seed) and 0009 (audit_log grants) are not safe to apply
+# concurrently.
+#
+# Not a production topology. Secrets here are throwaway, and a real deployment
+# runs migrations as a discrete release step — see SECURITY.md for the two-role
+# database setup this compose file deliberately does not model.
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: pramana
+      POSTGRES_PASSWORD: pramana
+      POSTGRES_DB: pramana
+    ports:
+      - "${POSTGRES_PORT:-55433}:5432"
+    healthcheck:
+      # `migrate` starts the moment this passes, so it has to mean "accepting
+      # queries", not "the process exists".
+      test: ["CMD-SHELL", "pg_isready -U pramana -d pramana"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - pramana-pgdata:/var/lib/postgresql/data
+
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://pramana:pramana@postgres:5432/pramana
+      SECRET_KEY: local-development-only-not-a-real-secret
+      ENVIRONMENT: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: .
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://pramana:pramana@postgres:5432/pramana
+      SECRET_KEY: local-development-only-not-a-real-secret
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+      # The definitions library reads this from the image (see Dockerfile).
+      DEFINITIONS_ROOT: docs/frameworks
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # Readiness, not liveness: this asks whether the instance can serve a
+      # request, which means the database has to answer.
+      # urlopen raises on a non-2xx, so a 503 exits non-zero without any status
+      # comparison. The endpoint bounds its own database query, so this returns
+      # promptly rather than relying on the timeout below.
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3)"
+      interval: 5s
+      timeout: 5s
+      # ~20s to mark unhealthy. Ten retries took nearly a minute and a half,
+      # which is a long time to keep routing traffic at an instance that cannot
+      # answer.
+      retries: 3
+      start_period: 10s
+
+volumes:
+  pramana-pgdata:

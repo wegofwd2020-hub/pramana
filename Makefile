@@ -2,7 +2,7 @@
 # Run `make help` for available targets.
 
 .PHONY: help install dev-install lint format type-check test test-cov \
-        pre-commit clean migrate migrate-create run security-scan status grant-role archive-audit
+        pre-commit clean migrate migrate-create run security-scan status grant-role archive-audit docker-build docker-up docker-down
 
 PYTHON := python3
 PIP := $(PYTHON) -m pip
@@ -73,6 +73,16 @@ run:  ## Run the FastAPI app with auto-reload. Override with HOST=/PORT=.
 # (pramana/tasks/ is an empty package) and audit archival is an idempotent script
 # by design — see `make archive-audit`. A target that always fails implies a
 # capability that does not exist. Restore it alongside a real Celery app.
+
+docker-build:  ## Build the container image.
+	docker build -t pramana:dev .
+
+docker-up:  ## Start Postgres + migrations + API. Override with API_PORT=.
+	docker compose up -d --build
+	@echo "API on http://localhost:$${API_PORT:-8000} — /health, /health/ready"
+
+docker-down:  ## Stop the stack. Add volumes=1 to drop the database volume.
+	docker compose down $(if $(volumes),-v,)
 
 status:  ## Regenerate the README status table from project-status.yaml.
 	$(PYTHON) scripts/render_status.py

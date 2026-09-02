@@ -79,6 +79,7 @@ the architecture cannot settle on its own. Each framework doc catalogues them in
 | `alembic/` | Database migrations |
 | `pyproject.toml` | Project metadata, dependencies, tool config |
 | `.github/workflows/ci.yml` | CI: lint, type-check, test, security scan |
+| `Dockerfile`, `compose.yaml` | Container image and the local Postgres + migrate + API stack |
 | `Makefile` | Common dev commands (`make help`) |
 
 ---
@@ -106,8 +107,9 @@ All design documents live under [`docs/`](./docs).
 > commission → ingest → human approval → publish → assign → play → grade → certify →
 > **verify**. That loop works end to end and is covered by tests against real Postgres.
 > First release is scoped to **SOX** for a single named client, and it is **not yet
-> deployed**. What remains is follow-on work — certificate PDFs and aggregate
-> reporting — not core capability.
+> deployed**. Every tracked feature is complete; what remains is deployment —
+> the two-role database topology and the Object-Lock bucket described in
+> [`SECURITY.md`](./SECURITY.md), neither of which application code can do.
 
 > **The table below is generated** from [`project-status.yaml`](./project-status.yaml),
 > which is the single source of truth. Edit the manifest, then run `make status`; a test
@@ -136,6 +138,7 @@ All design documents live under [`docs/`](./docs).
 | Role administration (audited grants/revokes + operator bootstrap) | ✅ Complete |
 | S3 Object Lock (WORM) archival of the audit log | ✅ Complete |
 | Certificate PDF (rendered on demand from pinned facts) | ✅ Complete |
+| Container image + local Postgres/migrate/API stack, liveness and readiness probes | ✅ Complete |
 | Per-framework audit-binder PDF (US-SOX-0006 sample packages) | ✅ Complete |
 | Aggregate CSV reports (population, training matrix, exceptions) | ✅ Complete |
 
@@ -183,7 +186,27 @@ Database schema is managed by Alembic migrations `0001`→`0006`.
 - Redis 7+ (for Celery; unit tests run without it)
 - `make` (optional but recommended)
 
-### Quick start
+### Run it in containers
+
+```bash
+make docker-up                  # Postgres + migrations + API
+make docker-up API_PORT=8145    # if 8000 is taken
+curl localhost:8000/health       # liveness  — is the process up?
+curl localhost:8000/health/ready # readiness — can it serve a request?
+make docker-down                # add volumes=1 to drop the database volume
+```
+
+Migrations run as their own one-shot service, and the API waits for it to
+*complete successfully* — the app never starts against an unmigrated schema.
+That is deliberate rather than convenient: an entrypoint migration races when
+there is more than one replica, and a production deploy should run
+`alembic upgrade head` as a discrete release step.
+
+The image carries WeasyPrint's native libraries (pango, cairo, DejaVu fonts).
+Without them the certificate and audit-binder PDFs fail at *request* time, since
+the import is lazy.
+
+### Quick start (local, no containers)
 
 ```bash
 # Clone and enter the repo
