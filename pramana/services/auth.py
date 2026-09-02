@@ -170,8 +170,20 @@ class JwksKeySource:
 # ---------------------------------------------------------------------------
 # Principal resolution
 # ---------------------------------------------------------------------------
+#: Claim carrying the user's email at first login. Overridable because an IdP
+#: does not necessarily send ``email`` on an *access* token: Auth0 puts it on the
+#: ID token, so an API token only carries it if a post-login Action adds it — and
+#: Auth0 drops custom claims that are not namespaced, so it arrives as something
+#: like ``https://your-domain/email``.
+DEFAULT_EMAIL_CLAIM = "email"
+
+
 async def resolve_principal(
-    session: AsyncSession, claims: Mapping[str, Any], *, now: datetime
+    session: AsyncSession,
+    claims: Mapping[str, Any],
+    *,
+    now: datetime,
+    email_claim: str = DEFAULT_EMAIL_CLAIM,
 ) -> Principal:
     """Map verified token claims to a :class:`Principal`.
 
@@ -188,7 +200,9 @@ async def resolve_principal(
         raise AuthenticationError("token is missing the 'sub' claim")
     user = (await session.execute(select(User).where(User.sso_subject == sub))).scalar_one_or_none()
     if user is None:
-        user = await _provision_by_email(session, claims, sub=str(sub), now=now)
+        user = await _provision_by_email(
+            session, claims, sub=str(sub), now=now, email_claim=email_claim
+        )
     roles = await _load_roles(session, user.user_id)
     return Principal(user_id=user.user_id, tenant_id=user.tenant_id, roles=roles)
 
@@ -210,7 +224,12 @@ async def _load_roles(session: AsyncSession, user_id: uuid.UUID) -> frozenset[st
 
 
 async def _provision_by_email(
-    session: AsyncSession, claims: Mapping[str, Any], *, sub: str, now: datetime
+    session: AsyncSession,
+    claims: Mapping[str, Any],
+    *,
+    sub: str,
+    now: datetime,
+    email_claim: str = DEFAULT_EMAIL_CLAIM,
 ) -> User:
     """First login: bind ``sub`` to a pre-provisioned user matched on email.
 
@@ -223,11 +242,14 @@ async def _provision_by_email(
             match, the matched user is already bound to a different identity, or
             it is not active.
     """
-    email = claims.get("email")
+    # Deliberately no fallback to "email" when a claim name is configured: a
+    # deployment that believes it reads a namespaced claim must not silently
+    # match on whatever else the token happens to carry.
+    email = claims.get(email_claim)
     if not isinstance(email, str) or not email.strip():
         raise AuthorizationError(
             "no user is bound to this identity and the token carries no email to match it",
-            context={"sub": sub},
+            context={"sub": sub, "expected_email_claim": email_claim},
         )
     email = email.strip()  # IdP claims may carry surrounding whitespace
     # The IdP signed the token, but only trust the email for *matching* if it
