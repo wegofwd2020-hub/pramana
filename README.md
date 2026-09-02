@@ -80,7 +80,6 @@ the architecture cannot settle on its own. Each framework doc catalogues them in
 | `pyproject.toml` | Project metadata, dependencies, tool config |
 | `.github/workflows/ci.yml` | CI: lint, type-check, test, security scan |
 | `Dockerfile`, `compose.yaml` | Container image and the local Postgres + migrate + API stack |
-| `deploy/nginx/` | Host nginx server block, versioned rather than living only on the box |
 | `Makefile` | Common dev commands (`make help`) |
 
 ---

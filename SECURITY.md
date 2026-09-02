@@ -147,16 +147,11 @@ real one takes both halves:
 public IP past Cloudflare and past TLS, and reachable from the other application
 on the box.
 
-The server block is versioned at
-[`deploy/nginx/pramana.mambakkam.net.conf`](deploy/nginx/pramana.mambakkam.net.conf),
-deliberately: this host's nginx configuration and certificates previously existed
-only on the box, and that is what caused the July 2026 outage. Installation steps
-and prerequisites are in the file header. **Verify before installing** whether
-the existing `mambakkam.net` certificate covers the subdomain — if it is
-apex-only, issue one whose SAN includes `pramana.mambakkam.net`.
-
-The Cloudflare DNS record must be **Proxied**. Grey-cloud sends browsers straight
-to the origin, which presents an Origin CA certificate no public root trusts.
+The nginx side is not yet written: hosting is undecided (a path mount under
+`mambakkam.net` was the last direction, which also needs `root_path` handling and
+an absolute verification URL on certificates). When it is, the config belongs in
+version control — this host's nginx configuration and certificates previously
+existed only on the box, and that is what caused the July 2026 outage.
 
 `/docs`, `/redoc` and `/openapi.json` are disabled whenever `ENVIRONMENT` is
 `production`, and refused again at nginx — the application gate is the control,
