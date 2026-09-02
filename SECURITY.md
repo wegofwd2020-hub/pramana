@@ -124,6 +124,44 @@ A validly-signed token for an unknown email is refused. So:
    without it every privileged route refuses everyone, including the route that
    grants roles.
 
+## 3b. Reverse-proxy deployment
+
+Pramana sits behind Cloudflare and host nginx. Two things break *silently* in
+that topology, so both are configuration the deployment must get right.
+
+**The client IP is evidence.** `attestation_ip` is captured at completion and
+carried in the audit chain. Read from the socket peer, every attestation records
+the proxy — a valid address, in a valid column, identifying nobody. Restoring the
+real one takes both halves:
+
+- nginx: `set_real_ip_from` the Cloudflare ranges plus `real_ip_header
+  CF-Connecting-IP`, so the learner's address survives the Cloudflare hop, then
+  `X-Forwarded-For` onward.
+- uvicorn: `--proxy-headers`, **and `--forwarded-allow-ips` scoped to the actual
+  proxy**. Never `*` — that lets anyone who reaches the port choose the address
+  recorded as evidence, and fabricated evidence is worse than absent evidence.
+  `FORWARDED_ALLOW_IPS` sets it.
+
+**The API must not be publicly bound.** `compose.yaml` publishes on
+`127.0.0.1` only. On a shared host, binding every interface puts the API on the
+public IP past Cloudflare and past TLS, and reachable from the other application
+on the box.
+
+The server block is versioned at
+[`deploy/nginx/pramana.mambakkam.net.conf`](deploy/nginx/pramana.mambakkam.net.conf),
+deliberately: this host's nginx configuration and certificates previously existed
+only on the box, and that is what caused the July 2026 outage. Installation steps
+and prerequisites are in the file header. **Verify before installing** whether
+the existing `mambakkam.net` certificate covers the subdomain — if it is
+apex-only, issue one whose SAN includes `pramana.mambakkam.net`.
+
+The Cloudflare DNS record must be **Proxied**. Grey-cloud sends browsers straight
+to the origin, which presents an Origin CA certificate no public root trusts.
+
+`/docs`, `/redoc` and `/openapi.json` are disabled whenever `ENVIRONMENT` is
+`production`, and refused again at nginx — the application gate is the control,
+the nginx one covers a misread environment.
+
 ## 4. Threat model (STRIDE-lite)
 
 | Threat | Example | Mitigation |

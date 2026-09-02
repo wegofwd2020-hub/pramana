@@ -79,8 +79,19 @@ EXPOSE 8000
 # --factory, matching `make run`: building the app at import time would resolve
 # Settings on import. No --reload.
 #
+# --proxy-headers is not optional behind nginx. Without it uvicorn ignores
+# X-Forwarded-For and every attestation records the proxy's address — SOX
+# evidence that is well-formed, in the audit chain, and identifies nobody.
+#
+# --forwarded-allow-ips is scoped rather than "*". Trusting the header from any
+# peer would let whoever can reach the port choose the IP that lands in the
+# evidence, which is worse than recording the wrong one. FORWARDED_ALLOW_IPS
+# names the actual proxy; the default covers a private Docker network.
+#
 # Migrations are deliberately NOT run here. With more than one replica the
 # entrypoint would race, and 0007 (role seed) and 0009 (grants) are not things
 # to apply concurrently. Run `alembic upgrade head` as a discrete step.
-CMD ["uvicorn", "--factory", "pramana.api.app:create_app", \
-     "--host", "0.0.0.0", "--port", "8000"]
+ENV FORWARDED_ALLOW_IPS=172.16.0.0/12
+CMD ["sh", "-c", "exec uvicorn --factory pramana.api.app:create_app \
+     --host 0.0.0.0 --port 8000 \
+     --proxy-headers --forwarded-allow-ips \"$FORWARDED_ALLOW_IPS\""]
