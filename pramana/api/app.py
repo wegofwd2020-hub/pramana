@@ -29,6 +29,7 @@ from pramana.api import (
 )
 from pramana.api.dependencies import get_db_session
 from pramana.api.errors import register_exception_handlers
+from pramana.config import Settings, get_settings
 
 logger = structlog.get_logger(__name__)
 
@@ -37,12 +38,26 @@ logger = structlog.get_logger(__name__)
 READINESS_TIMEOUT_SECONDS = 2.0
 
 
-def create_app() -> FastAPI:
-    """Construct and configure the Pramana API application."""
+def create_app(*, settings: Settings | None = None) -> FastAPI:
+    """Construct and configure the Pramana API application.
+
+    ``settings`` is injectable so tests can build an app for a specific
+    environment without mutating process state.
+    """
+    settings = settings or get_settings()
+
+    # The interactive docs publish every route, parameter and schema of a
+    # compliance product to anyone who finds the hostname. Serving openapi.json
+    # while hiding the UI would be theatre, so all three go together.
+    docs_enabled = not settings.is_production
+
     app = FastAPI(
         title="Pramana",
         description="Compliance training delivery + tracking.",
         version="0.1.0",
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+        openapi_url="/openapi.json" if docs_enabled else None,
     )
 
     register_exception_handlers(app)

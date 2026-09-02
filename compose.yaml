@@ -47,7 +47,10 @@ services:
   api:
     build: .
     ports:
-      - "${API_PORT:-8000}:8000"
+      # Loopback only. Host nginx is the sole ingress: published on every
+      # interface this would sit on the box's public IP, past Cloudflare and past
+      # TLS, and be reachable from the other application sharing the host.
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://pramana:pramana@postgres:5432/pramana
       SECRET_KEY: local-development-only-not-a-real-secret
@@ -55,6 +58,10 @@ services:
       LOG_LEVEL: INFO
       # The definitions library reads this from the image (see Dockerfile).
       DEFINITIONS_ROOT: docs/frameworks
+      # Whose X-Forwarded-For uvicorn will believe. Never "*": that lets any
+      # caller who reaches the port forge the IP recorded as attestation
+      # evidence. The compose network gateway is the only legitimate peer here.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.16.0.0/12}
     depends_on:
       postgres:
         condition: service_healthy
