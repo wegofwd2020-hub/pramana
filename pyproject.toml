@@ -183,6 +183,13 @@ filterwarnings = [
     # warning fires on import of fastapi/starlette TestClient — third-party, not
     # our code. Re-evaluate when migrating the test client to httpx2.
     "ignore::starlette.exceptions.StarletteDeprecationWarning",
+    # anyio 4.15.0 (released 2026-09-02) deprecated the anyio.abc.BlockingPortal
+    # alias. It fires on import of fastapi/starlette's TestClient, which reaches
+    # it through anyio's own re-export — third-party, not our code, and not
+    # reachable from here. Matched on the message so other anyio deprecations
+    # still fail the build. Drop this when starlette moves to
+    # anyio.from_thread.BlockingPortal.
+    "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning",
 ]
 
 # ----------------------------------------------------------------------------
