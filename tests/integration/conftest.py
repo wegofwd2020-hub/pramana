@@ -24,6 +24,7 @@ import pramana.db.models  # noqa: F401 — register every table on Base.metadata
 from pramana.db.base import Base
 from pramana.db.models.course import AnswerOption, Course, CourseVersion, Question
 from pramana.db.models.identity import Tenant, User
+from pramana.services.consumer_tenant import ensure_consumer_tenant
 from tests.conftest import _ensure_test_environment
 
 _DEFAULT_URL = "postgresql+asyncpg://pramana:pramana@localhost:55432/pramana_test"
@@ -144,3 +145,22 @@ async def seed_course(
         course_version_id=version.id,
         questions=questions,
     )
+
+
+@pytest_asyncio.fixture
+async def consumer_tenant(
+    sessions: async_sessionmaker[AsyncSession],
+) -> Tenant:
+    """Seed and return the consumer tenant (short_code='consumer').
+
+    Migration ``0010`` seeds this row for real deployments; the integration
+    suite never runs Alembic, so this fixture provides the same row via
+    :func:`pramana.services.consumer_tenant.ensure_consumer_tenant`.
+    Downstream tasks (5, 6, 7, 8, 12) resolve the consumer tenant via
+    ``get_consumer_tenant_id()``; they should request this fixture so the row
+    exists before their first query.
+    """
+    async with sessions() as session:
+        tenant = await ensure_consumer_tenant(session)
+        await session.commit()
+    return tenant

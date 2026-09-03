@@ -47,6 +47,14 @@ EXPECTED_TABLES: set[str] = {
     # Bookkeeping for the WORM archive, not an entity from the resolved-decisions
     # doc — it records which audit ranges have been mirrored to object storage.
     "audit_archive_segment",
+    # Consumer subscription tables (Task 1 ORM models, migration 0010).
+    "package",
+    "package_course",
+    "entitlement",
+    "enrollment",
+    "play_session",
+    "consumer_attempt",
+    "consumer_attempt_answer",
 }
 
 

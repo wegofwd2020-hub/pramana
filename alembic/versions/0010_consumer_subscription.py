@@ -18,6 +18,13 @@ down_revision: str | None = "0009_audit_log_grants"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+#: The single consumer-facing tenant seeded by this migration.
+#: Duplicated in ``pramana.services.consumer_tenant.CONSUMER_TENANT_SHORT_CODE``
+#: because the integration suite builds its schema from ORM metadata (no Alembic).
+#: ``tests/db/test_consumer_seed.py`` asserts the two agree.
+CONSUMER_TENANT_SHORT_CODE: str = "consumer"
+CONSUMER_TENANT_NAME: str = "Consumer"
+
 
 def upgrade() -> None:
     op.create_table(
