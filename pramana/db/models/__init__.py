@@ -14,6 +14,15 @@ from pramana.db.models.assignment import (
     Certificate,
 )
 from pramana.db.models.audit import AuditArchiveSegment, AuditLog
+from pramana.db.models.consumer import (
+    ConsumerAttempt,
+    ConsumerAttemptAnswer,
+    Enrollment,
+    Entitlement,
+    Package,
+    PackageCourse,
+    PlaySession,
+)
 from pramana.db.models.content import ContentDraft
 from pramana.db.models.content_request import ContentRequest
 from pramana.db.models.course import (
@@ -59,4 +68,12 @@ __all__ = [  # noqa: RUF022 - grouped by domain, not alphabetical
     # Audit
     "AuditArchiveSegment",
     "AuditLog",
+    # Consumer
+    "Package",
+    "PackageCourse",
+    "Entitlement",
+    "Enrollment",
+    "PlaySession",
+    "ConsumerAttempt",
+    "ConsumerAttemptAnswer",
 ]
