@@ -7,7 +7,7 @@ Kept separate from the routers so tests can override individual seams
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, Protocol
@@ -25,7 +25,7 @@ from pramana.db.session import session_scope
 from pramana.domain.consumable_package import SignatureVerifier
 from pramana.domain.content_approval import utcnow
 from pramana.domain.enums import ContentDraftStatus, ContentRequestStatus
-from pramana.exceptions import AuthenticationError, AuthorizationError
+from pramana.exceptions import AuthenticationError, AuthorizationError, EntitlementRequiredError
 from pramana.services import content_requests, content_review
 from pramana.services.auth import (
     JwksKeySource,
@@ -35,6 +35,7 @@ from pramana.services.auth import (
     resolve_principal,
 )
 from pramana.services.certificate_pdf import PdfRenderer, build_weasyprint_renderer
+from pramana.services.consumer.entitlements import has_active_entitlement_for_course
 from pramana.services.consumer_library import ingest_consumable_package
 from pramana.services.mentible_client import (
     HttpMentibleClient,
@@ -45,12 +46,14 @@ from pramana.services.package_signing import HmacSignatureVerifier
 from pramana.services.player import AssetUrlSigner, null_asset_signer
 
 __all__ = [
+    "EntitlementChecker",
     "Principal",
     "get_asset_signer",
     "get_content_request_service",
     "get_content_review_service",
     "get_db_session",
     "get_definitions_root",
+    "get_entitlement_checker",
     "get_mentible_client",
     "get_mentible_webhook_handler",
     "get_package_ingestor",
@@ -59,6 +62,7 @@ __all__ = [
     "get_signature_verifier",
     "get_token_verifier",
     "get_webhook_signature_verifier",
+    "require_course_entitlement",
 ]
 
 
@@ -530,3 +534,34 @@ def get_mentible_webhook_handler(
 ) -> MentibleWebhookHandler:
     """Provide the default database-backed Mentible webhook handler."""
     return _DbMentibleWebhookHandler(session)
+
+
+# ---------------------------------------------------------------------------
+# Consumer entitlement gate
+# ---------------------------------------------------------------------------
+EntitlementChecker = Callable[..., Awaitable[bool]]
+
+
+def get_entitlement_checker() -> EntitlementChecker:
+    """Seam: the entitlement predicate. Overridden in tests."""
+    return has_active_entitlement_for_course
+
+
+async def require_course_entitlement(
+    course_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    principal: Annotated[Principal, Depends(get_principal)],
+    checker: Annotated[EntitlementChecker, Depends(get_entitlement_checker)],
+) -> Principal:
+    ok = await checker(
+        session,
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        course_id=course_id,
+        now=utcnow(),
+    )
+    if not ok:
+        raise EntitlementRequiredError(
+            "no active entitlement for this lesson", context={"course_id": str(course_id)}
+        )
+    return principal
