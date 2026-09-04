@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pramana.exceptions import NotFoundError
 from pramana.services.consumer import entitlements as ent
 
 pytestmark = pytest.mark.integration
@@ -106,3 +108,60 @@ async def test_grant_is_idempotent_and_gates_by_course(
         )
         is False
     )
+
+
+@pytest.mark.asyncio
+async def test_revoke_entitlement_rejects_wrong_tenant(
+    db: AsyncSession,
+    consumer_tenant: object,
+) -> None:
+    """revoke_entitlement must raise NotFoundError for a mismatched tenant_id.
+
+    The real entitlement row must remain untouched (status still 'active').
+    """
+    from pramana.db.models.consumer import Package, PackageCourse
+    from tests.integration.conftest import seed_course
+
+    tenant_id = await ent.get_consumer_tenant_id(db)
+
+    seeded = await seed_course(db)
+
+    user = await ent.create_consumer_user(
+        db,
+        tenant_id=tenant_id,
+        email="b@example.com",
+        first_name="Bob",
+        last_name="Smith",
+        now=_NOW,
+    )
+
+    pkg = Package(tenant_id=tenant_id, slug="iso-pkg", title="ISO Pkg", is_published=True)
+    db.add(pkg)
+    await db.flush()
+    db.add(PackageCourse(package_id=pkg.id, course_id=seeded.course_id))
+    await db.flush()
+
+    entitlement = await ent.grant_package(
+        db,
+        tenant_id=tenant_id,
+        user_id=user.user_id,
+        package_id=pkg.id,
+        granted_by_user_id=None,
+        now=_NOW,
+    )
+    assert entitlement.status == "active"
+
+    # Use a random UUID that is NOT the consumer tenant — must be rejected.
+    wrong_tenant_id = uuid.uuid4()
+    with pytest.raises(NotFoundError):
+        await ent.revoke_entitlement(
+            db,
+            tenant_id=wrong_tenant_id,
+            entitlement_id=entitlement.id,
+            revoked_by_user_id=None,
+            now=_NOW,
+        )
+
+    # The row must be untouched — still active.
+    await db.refresh(entitlement)
+    assert entitlement.status == "active"

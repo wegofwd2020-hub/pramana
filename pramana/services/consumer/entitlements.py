@@ -118,6 +118,17 @@ async def revoke_entitlement(
     now: datetime,
     reason: str | None = None,
 ) -> Entitlement:
+    """Revoke an active entitlement and append an audit event.
+
+    Idempotency contract: if the entitlement is already in a non-active state
+    (e.g. already revoked), this function returns it unchanged without writing
+    another audit event.  This is deliberate — a payment webhook that fires
+    twice must be a safe no-op on the second call; the audit chain already
+    captured the first revoke.
+
+    Raises ``NotFoundError`` if the entitlement does not exist or belongs to a
+    different tenant (tenant-isolation contract).
+    """
     ent = await session.get(Entitlement, entitlement_id)
     if ent is None or ent.tenant_id != tenant_id:
         raise NotFoundError(
