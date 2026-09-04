@@ -181,6 +181,7 @@ class ConsumerSetup:
     user: User
     course: Course
     entitlement: Entitlement
+    correct_options: dict[uuid.UUID, list[uuid.UUID]]
 
 
 async def consumer_setup(session: AsyncSession) -> ConsumerSetup:
@@ -246,4 +247,5 @@ async def consumer_setup(session: AsyncSession) -> ConsumerSetup:
         user=user,
         course=course,
         entitlement=entitlement,
+        correct_options={qid: [correct] for qid, (correct, _wrong) in seeded.questions.items()},
     )
