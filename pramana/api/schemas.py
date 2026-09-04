@@ -625,10 +625,10 @@ class ConsumerGrantOut(BaseModel):
 # Consumer catalog — my packages, lesson list, views, quiz
 # ---------------------------------------------------------------------------
 class MyPackageOut(BaseModel):
-    package_id: uuid.UUID
+    package_id: uuid.UUID = Field(validation_alias="id")
     slug: str
     title: str
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class LessonListItemOut(BaseModel):
