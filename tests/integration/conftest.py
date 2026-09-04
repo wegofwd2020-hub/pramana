@@ -15,6 +15,7 @@ import os
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -22,8 +23,10 @@ from sqlalchemy.pool import NullPool
 
 import pramana.db.models  # noqa: F401 — register every table on Base.metadata
 from pramana.db.base import Base
+from pramana.db.models.consumer import Entitlement, Package, PackageCourse
 from pramana.db.models.course import AnswerOption, Course, CourseVersion, Question
 from pramana.db.models.identity import Tenant, User
+from pramana.services.consumer import entitlements
 from pramana.services.consumer_tenant import ensure_consumer_tenant
 from tests.conftest import _ensure_test_environment
 
@@ -164,3 +167,83 @@ async def consumer_tenant(
         tenant = await ensure_consumer_tenant(session)
         await session.commit()
     return tenant
+
+
+# ---------------------------------------------------------------------------
+# Consumer setup helper (Tasks 6, 7, 8, 12)
+# ---------------------------------------------------------------------------
+_CONSUMER_SETUP_NOW = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+@dataclass(frozen=True)
+class ConsumerSetup:
+    tenant_id: uuid.UUID
+    user: User
+    course: Course
+    entitlement: Entitlement
+
+
+async def consumer_setup(session: AsyncSession) -> ConsumerSetup:
+    """Seed the minimum consumer world for a single test.
+
+    Creates (or reuses) the consumer tenant, seeds a course, creates a
+    consumer user, creates a Package + PackageCourse, and grants the package
+    to the user.  Returns a frozen :class:`ConsumerSetup` so callers access
+    ``s.tenant_id``, ``s.user.user_id``, ``s.course.id``,
+    ``s.course.current_version_id``, and ``s.entitlement.id``.
+
+    Tasks 7, 8, and 12 should reuse this helper unchanged.
+    """
+    now = _CONSUMER_SETUP_NOW
+
+    # 1. Ensure the consumer tenant row exists and get its id.
+    await ensure_consumer_tenant(session)
+    await session.flush()
+    tenant_id = await entitlements.get_consumer_tenant_id(session)
+
+    # 2. Seed a course (creates its own tenant + user internally; we only need
+    #    the course + version ids from it).
+    seeded = await seed_course(session)
+    course = await session.get(Course, seeded.course_id)
+    assert course is not None  # seed_course always creates one
+
+    # 3. Create a consumer user under the consumer tenant.
+    user = await entitlements.create_consumer_user(
+        session,
+        tenant_id=tenant_id,
+        email=f"{uuid.uuid4()}@consumer.example.com",
+        first_name="Test",
+        last_name="User",
+        now=now,
+    )
+
+    # 4. Create a Package + PackageCourse under the consumer tenant.
+    pkg = Package(
+        tenant_id=tenant_id,
+        slug=uuid.uuid4().hex[:12],
+        title="Test Package",
+        is_published=True,
+    )
+    session.add(pkg)
+    await session.flush()
+    pc = PackageCourse(package_id=pkg.id, course_id=seeded.course_id)
+    session.add(pc)
+    await session.flush()
+
+    # 5. Grant the package to the user.
+    entitlement = await entitlements.grant_package(
+        session,
+        tenant_id=tenant_id,
+        user_id=user.user_id,
+        package_id=pkg.id,
+        granted_by_user_id=None,
+        now=now,
+    )
+
+    await session.commit()
+    return ConsumerSetup(
+        tenant_id=tenant_id,
+        user=user,
+        course=course,
+        entitlement=entitlement,
+    )
