@@ -115,3 +115,39 @@ async def test_end_view_rejects_out_of_range_pct(db: AsyncSession, consumer_tena
             max_watched_pct=101,
             now=now,
         )
+
+
+async def test_end_view_rejects_other_users_session(
+    db: AsyncSession, consumer_tenant: object
+) -> None:
+    s = await consumer_setup(db)
+    manifest = await play.start_view(
+        db,
+        tenant_id=s.tenant_id,
+        user_id=s.user.user_id,
+        course_id=s.course.id,
+        entitlement_id=s.entitlement.id,
+        media_kind="video",
+        now=now,
+    )
+
+    other_user_id = uuid.uuid4()
+    with pytest.raises(NotFoundError):
+        await play.end_view(
+            db,
+            tenant_id=s.tenant_id,
+            user_id=other_user_id,
+            play_session_id=manifest.play_session_id,
+            duration_seconds=42,
+            max_watched_pct=80,
+            now=now,
+        )
+
+    from sqlalchemy import select
+
+    from pramana.db.models.consumer import Enrollment
+
+    enr = (
+        await db.execute(select(Enrollment).where(Enrollment.id == manifest.enrollment_id))
+    ).scalar_one()
+    assert enr.view_count == 0

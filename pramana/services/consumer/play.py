@@ -82,22 +82,25 @@ async def end_view(
     max_watched_pct: int,
     now: datetime,
 ) -> None:
-    if not (0 <= max_watched_pct <= 100):
-        raise ValidationError("max_watched_pct out of range")
     ps = await session.get(PlaySession, play_session_id)
     if ps is None or ps.tenant_id != tenant_id:
         raise NotFoundError("play session not found")
+
+    enrollment = await session.get(Enrollment, ps.enrollment_id)
+    if enrollment is None or enrollment.user_id != user_id:
+        raise NotFoundError(
+            "play session not found",
+            context={"play_session_id": str(play_session_id)},
+        )
+
     if ps.ended_at is not None:
         return  # idempotent: already closed, don't double-count
+
+    if not (0 <= max_watched_pct <= 100):
+        raise ValidationError("max_watched_pct out of range")
+
     ps.ended_at = now
     ps.duration_seconds = duration_seconds
     ps.max_watched_pct = max_watched_pct
-
-    enrollment = await session.get(Enrollment, ps.enrollment_id)
-    if enrollment is None:
-        raise NotFoundError(
-            "enrollment not found for play session",
-            context={"play_session_id": str(play_session_id)},
-        )
     enrollment.view_count += 1
     enrollment.last_accessed_at = now

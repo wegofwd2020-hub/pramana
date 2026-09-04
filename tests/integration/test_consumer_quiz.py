@@ -1,11 +1,13 @@
 # tests/integration/test_consumer_quiz.py
+import uuid
 from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pramana.db.models.consumer import Enrollment
+from pramana.db.models.consumer import ConsumerAttempt, Enrollment
+from pramana.exceptions import NotFoundError
 from pramana.services.consumer import quiz
 from tests.integration.conftest import consumer_setup
 
@@ -66,3 +68,33 @@ async def test_options_do_not_leak_correctness(db: AsyncSession, consumer_tenant
     for q in form.questions:
         for opt in q.options:
             assert not hasattr(opt, "is_correct")
+
+
+async def test_submit_rejects_other_users_attempt(
+    db: AsyncSession, consumer_tenant: object
+) -> None:
+    s = await consumer_setup(db)
+    form = await quiz.start_quiz(
+        db,
+        tenant_id=s.tenant_id,
+        user_id=s.user.user_id,
+        course_id=s.course.id,
+        entitlement_id=s.entitlement.id,
+        now=now,
+    )
+    answers = {q.question_id: s.correct_options[q.question_id] for q in form.questions}
+
+    other_user_id = uuid.uuid4()
+    with pytest.raises(NotFoundError):
+        await quiz.submit_quiz(
+            db,
+            tenant_id=s.tenant_id,
+            user_id=other_user_id,
+            attempt_id=form.attempt_id,
+            answers=answers,
+            now=now,
+        )
+
+    attempt = await db.get(ConsumerAttempt, form.attempt_id)
+    assert attempt is not None
+    assert attempt.submitted_at is None

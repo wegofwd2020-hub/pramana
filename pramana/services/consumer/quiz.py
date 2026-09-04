@@ -132,6 +132,11 @@ async def submit_quiz(
     attempt = await session.get(ConsumerAttempt, attempt_id)
     if attempt is None or attempt.tenant_id != tenant_id:
         raise NotFoundError("attempt not found", context={"attempt_id": str(attempt_id)})
+
+    enrollment = await session.get(Enrollment, attempt.enrollment_id)
+    if enrollment is None or enrollment.user_id != user_id:
+        raise NotFoundError("attempt not found", context={"attempt_id": str(attempt_id)})
+
     if attempt.submitted_at is not None:
         raise ValidationError("attempt already submitted")
 
@@ -163,13 +168,11 @@ async def submit_quiz(
     attempt.correct_count = len(correct_ids)
     attempt.is_all_correct = is_all_correct(result.score_pct)
 
-    enrollment = await session.get(Enrollment, attempt.enrollment_id)
-    if enrollment is not None:
-        if attempt.is_all_correct:
-            enrollment.completion_count += 1
-        if enrollment.best_score_pct is None or result.score_pct > enrollment.best_score_pct:
-            enrollment.best_score_pct = result.score_pct
-        enrollment.last_accessed_at = now
+    if attempt.is_all_correct:
+        enrollment.completion_count += 1
+    if enrollment.best_score_pct is None or result.score_pct > enrollment.best_score_pct:
+        enrollment.best_score_pct = result.score_pct
+    enrollment.last_accessed_at = now
 
     return QuizResult(
         attempt_id=attempt.id,
