@@ -619,3 +619,69 @@ class EntitlementOut(BaseModel):
 class ConsumerGrantOut(BaseModel):
     user_id: uuid.UUID
     entitlement: EntitlementOut
+
+
+# ---------------------------------------------------------------------------
+# Consumer catalog — my packages, lesson list, views, quiz
+# ---------------------------------------------------------------------------
+class MyPackageOut(BaseModel):
+    package_id: uuid.UUID
+    slug: str
+    title: str
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LessonListItemOut(BaseModel):
+    course_id: uuid.UUID
+    title: str
+    display_order: int
+    view_count: int
+    completion_count: int
+    best_score_pct: float | None
+
+
+class StartViewIn(BaseModel):
+    media_kind: str = "video"
+
+
+class PlaySessionOut(BaseModel):
+    play_session_id: uuid.UUID
+    course_version_id: uuid.UUID
+    media_url: str | None
+    media_kind: str
+    min_watch_pct: int
+
+
+class EndViewIn(BaseModel):
+    duration_seconds: int = Field(ge=0)
+    max_watched_pct: int = Field(ge=0, le=100)
+
+
+class QuizOptionOut(BaseModel):
+    option_id: uuid.UUID
+    option_text: str
+
+
+class QuizQuestionOut(BaseModel):
+    question_id: uuid.UUID
+    question_text: str
+    question_type: str
+    options: list[QuizOptionOut]
+
+
+class QuizFormOut(BaseModel):
+    attempt_id: uuid.UUID
+    course_version_id: uuid.UUID
+    questions: list[QuizQuestionOut]
+
+
+class SubmitQuizIn(BaseModel):
+    answers: dict[uuid.UUID, list[uuid.UUID]]
+
+
+class QuizResultOut(BaseModel):
+    attempt_id: uuid.UUID
+    score_pct: float
+    is_all_correct: bool
+    correct_count: int
+    question_count: int

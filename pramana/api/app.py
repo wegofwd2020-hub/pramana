@@ -19,6 +19,7 @@ from pramana.api import (
     assignments,
     audit,
     certificates,
+    consumer,
     consumer_admin,
     consumer_library,
     content_drafts,
@@ -62,6 +63,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
     )
 
     register_exception_handlers(app)
+    app.include_router(consumer.router)
     app.include_router(consumer_admin.router)
     app.include_router(consumer_library.router)
     app.include_router(content_drafts.router)
