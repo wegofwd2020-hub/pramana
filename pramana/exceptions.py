@@ -184,6 +184,12 @@ class AuthorizationError(PramanaError):
     code = "forbidden"
 
 
+class EntitlementRequiredError(AuthorizationError):
+    """The caller has no active entitlement covering the requested course."""
+
+    code = "entitlement_required"
+
+
 # ---------------------------------------------------------------------------
 # External service errors
 # ---------------------------------------------------------------------------
