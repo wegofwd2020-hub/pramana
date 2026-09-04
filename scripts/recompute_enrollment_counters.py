@@ -23,6 +23,8 @@ async def recompute_all(session: AsyncSession, *, dry_run: bool) -> list[dict[st
     ids = list((await session.execute(select(Enrollment.id))).scalars())
     for enrollment_id in ids:
         before = await session.get(Enrollment, enrollment_id)
+        if before is None:
+            continue
         prev = (before.view_count, before.completion_count, before.best_score_pct)
         after = await recompute_counters(session, enrollment_id=enrollment_id)
         now = (after.view_count, after.completion_count, after.best_score_pct)

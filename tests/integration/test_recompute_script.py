@@ -37,5 +37,7 @@ async def test_recompute_all_fixes_drift(db: AsyncSession, consumer_tenant: obje
     await db.flush()
 
     drifted = await recompute_all(db, dry_run=False)
+    await db.commit()
+    await db.refresh(e)
     assert e.view_count == 1
     assert any(d["enrollment_id"] == e.id for d in drifted)
