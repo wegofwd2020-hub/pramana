@@ -1,9 +1,11 @@
 # tests/integration/test_consumer_play.py
+import uuid
 from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pramana.exceptions import NotFoundError, ValidationError
 from pramana.services.consumer import play
 from tests.integration.conftest import consumer_setup
 
@@ -55,3 +57,61 @@ async def test_start_then_end_view_bumps_view_count_once(
         await db.execute(select(Enrollment).where(Enrollment.id == manifest.enrollment_id))
     ).scalar_one()
     assert enr.view_count == 1
+
+
+async def test_end_view_rejects_wrong_tenant(db: AsyncSession, consumer_tenant: object) -> None:
+    s = await consumer_setup(db)
+    manifest = await play.start_view(
+        db,
+        tenant_id=s.tenant_id,
+        user_id=s.user.user_id,
+        course_id=s.course.id,
+        entitlement_id=s.entitlement.id,
+        media_kind="video",
+        now=now,
+    )
+
+    wrong_tenant_id = uuid.uuid4()
+    with pytest.raises(NotFoundError):
+        await play.end_view(
+            db,
+            tenant_id=wrong_tenant_id,
+            user_id=s.user.user_id,
+            play_session_id=manifest.play_session_id,
+            duration_seconds=10,
+            max_watched_pct=50,
+            now=now,
+        )
+
+    from sqlalchemy import select
+
+    from pramana.db.models.consumer import Enrollment
+
+    enr = (
+        await db.execute(select(Enrollment).where(Enrollment.id == manifest.enrollment_id))
+    ).scalar_one()
+    assert enr.view_count == 0
+
+
+async def test_end_view_rejects_out_of_range_pct(db: AsyncSession, consumer_tenant: object) -> None:
+    s = await consumer_setup(db)
+    manifest = await play.start_view(
+        db,
+        tenant_id=s.tenant_id,
+        user_id=s.user.user_id,
+        course_id=s.course.id,
+        entitlement_id=s.entitlement.id,
+        media_kind="video",
+        now=now,
+    )
+
+    with pytest.raises(ValidationError):
+        await play.end_view(
+            db,
+            tenant_id=s.tenant_id,
+            user_id=s.user.user_id,
+            play_session_id=manifest.play_session_id,
+            duration_seconds=10,
+            max_watched_pct=101,
+            now=now,
+        )

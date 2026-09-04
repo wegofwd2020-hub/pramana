@@ -94,6 +94,10 @@ async def end_view(
     ps.max_watched_pct = max_watched_pct
 
     enrollment = await session.get(Enrollment, ps.enrollment_id)
-    if enrollment is not None:
-        enrollment.view_count += 1
-        enrollment.last_accessed_at = now
+    if enrollment is None:
+        raise NotFoundError(
+            "enrollment not found for play session",
+            context={"play_session_id": str(play_session_id)},
+        )
+    enrollment.view_count += 1
+    enrollment.last_accessed_at = now
