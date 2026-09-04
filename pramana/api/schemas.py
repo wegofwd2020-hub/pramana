@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 if TYPE_CHECKING:
     from pramana.db.models.assignment import Assignment, Attempt, Certificate
@@ -596,3 +596,26 @@ class CourseVersionOut(BaseModel):
             version_number=cv.version_number,
             is_active=cv.is_active,
         )
+
+
+# ---------------------------------------------------------------------------
+# Consumer admin — create consumer account + grant/revoke package access
+# ---------------------------------------------------------------------------
+class ConsumerGrantIn(BaseModel):
+    email: EmailStr
+    first_name: str | None = None
+    last_name: str | None = None
+    package_id: uuid.UUID
+
+
+class EntitlementOut(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    package_id: uuid.UUID
+    status: str
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ConsumerGrantOut(BaseModel):
+    user_id: uuid.UUID
+    entitlement: EntitlementOut
