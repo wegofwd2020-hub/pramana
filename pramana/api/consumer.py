@@ -6,7 +6,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pramana.api.dependencies import (
@@ -35,6 +35,7 @@ from pramana.db.models.consumer import (
 )
 from pramana.db.models.course import Course
 from pramana.domain.assignment_state import utcnow
+from pramana.exceptions import EntitlementRequiredError
 from pramana.services.auth import Principal
 from pramana.services.consumer import entitlements as ent
 from pramana.services.consumer import play, quiz
@@ -63,19 +64,19 @@ async def my_packages(session: Session, caller: Caller) -> list[MyPackageOut]:
 async def package_lessons(
     package_id: uuid.UUID, session: Session, caller: Caller
 ) -> list[LessonListItemOut]:
-    # Access: caller must hold an active entitlement for THIS package.
+    # Access: caller must hold an active, unexpired entitlement for THIS package.
+    now = utcnow()
     held = (
         await session.execute(
             select(Entitlement.id).where(
                 Entitlement.user_id == caller.user_id,
                 Entitlement.package_id == package_id,
                 Entitlement.status == "active",
+                or_(Entitlement.expires_at.is_(None), Entitlement.expires_at > now),
             )
         )
     ).scalar_one_or_none()
     if held is None:
-        from pramana.exceptions import EntitlementRequiredError
-
         raise EntitlementRequiredError(
             "no entitlement for this package",
             context={"package_id": str(package_id)},
