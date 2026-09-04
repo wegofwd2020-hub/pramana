@@ -2,7 +2,8 @@
 # Run `make help` for available targets.
 
 .PHONY: help install dev-install lint format type-check test test-cov \
-        pre-commit clean migrate migrate-create run security-scan status grant-role archive-audit docker-build docker-up docker-down
+        pre-commit clean migrate migrate-create run security-scan status grant-role archive-audit docker-build docker-up docker-down \
+        recompute-counters
 
 PYTHON := python3
 PIP := $(PYTHON) -m pip
@@ -92,6 +93,9 @@ archive-audit:  ## Mirror pending audit rows to WORM storage. Add status=1 or dr
 
 grant-role:  ## Bootstrap a role out of band. Usage: make grant-role email=you@example.com [role=auditor]
 	$(PYTHON) scripts/grant_role.py --email "$(email)" $(if $(role),--role "$(role)",)
+
+recompute-counters:  ## Reconcile consumer enrollment counters against event tables
+	$(PYTHON) -m scripts.recompute_enrollment_counters $(ARGS)
 
 check:  ## Run lint + type-check + tests (CI equivalent).
 	$(MAKE) lint
