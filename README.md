@@ -141,6 +141,7 @@ All design documents live under [`docs/`](./docs).
 | Container image + local Postgres/migrate/API stack, liveness and readiness probes | ✅ Complete |
 | Per-framework audit-binder PDF (US-SOX-0006 sample packages) | ✅ Complete |
 | Aggregate CSV reports (population, training matrix, exceptions) | ✅ Complete |
+| Consumer subscription (B2C self-serve: buy package → lessons → quiz → view/completion tracking) | ✅ Complete |
 
 <!-- END GENERATED: status -->
 

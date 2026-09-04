@@ -80,3 +80,6 @@ features:
   - id: aggregate-reports
     name: Aggregate CSV reports (population, training matrix, exceptions)
     status: done
+  - id: consumer-subscription
+    name: "Consumer subscription (B2C self-serve: buy package → lessons → quiz → view/completion tracking)"
+    status: done
