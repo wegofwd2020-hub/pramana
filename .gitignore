@@ -4,3 +4,8 @@ __pycache__/
 
 # Packaging / build metadata
 *.egg-info/
+
+# Local secrets (symlinked from ~/.secrets by link-secrets; never commit)
+.env
+.env.*
+!.env.example
