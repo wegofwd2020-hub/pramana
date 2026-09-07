@@ -60,6 +60,11 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         docs_url="/docs" if docs_enabled else None,
         redoc_url="/redoc" if docs_enabled else None,
         openapi_url="/openapi.json" if docs_enabled else None,
+        # Served under a path prefix in production (mambakkam.net/pramana). nginx
+        # strips the prefix before proxying, so the app sees bare paths; root_path
+        # is what makes /docs and the OpenAPI servers URL re-add it. Empty for a
+        # bare host — see Settings.root_path.
+        root_path=settings.root_path,
     )
 
     register_exception_handlers(app)

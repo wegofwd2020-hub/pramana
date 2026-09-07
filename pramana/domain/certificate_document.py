@@ -41,7 +41,12 @@ class CertificateDocument:
     attestation_text_version: str
 
 
-def build_certificate_html(doc: CertificateDocument, *, now: datetime | None = None) -> str:
+def build_certificate_html(
+    doc: CertificateDocument,
+    *,
+    now: datetime | None = None,
+    verify_base_url: str = "",
+) -> str:
     """Render the certificate as a self-contained HTML page.
 
     Self-contained — styles inline, no external references — because the
@@ -51,8 +56,14 @@ def build_certificate_html(doc: CertificateDocument, *, now: datetime | None = N
     ``now`` decides only whether the document is stamped expired; it is passed in
     rather than read from the clock so the output stays a pure function of its
     inputs.
+
+    ``verify_base_url`` is the deployment's externally reachable origin (and path
+    prefix). A certificate is a document someone holds in their hand, so the
+    verification link must be a full URL — a relative path is meaningless on
+    paper. Empty (dev/test) falls back to a relative path.
     """
     e = html.escape
+    verify_url = f"{verify_base_url.rstrip('/')}/certificates/verify/{e(doc.verification_code)}"
     expired = now is not None and doc.expires_at <= now
     banner = (
         '<p class="expired">THIS CERTIFICATE HAS EXPIRED</p>'
@@ -103,7 +114,7 @@ def build_certificate_html(doc: CertificateDocument, *, now: datetime | None = N
   </div>
 
   <p class="subtitle">
-    Verify this certificate at /certificates/verify/{e(doc.verification_code)}
+    Verify this certificate at {verify_url}
   </p>
 </body>
 </html>

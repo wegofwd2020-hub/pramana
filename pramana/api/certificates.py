@@ -27,6 +27,7 @@ from pramana.api.schemas import (
     CertificateVerification,
     Pagination,
 )
+from pramana.config import Settings, get_settings
 from pramana.domain.assignment_state import utcnow
 from pramana.domain.certificate_document import build_certificate_html
 from pramana.exceptions import AuthorizationError
@@ -40,6 +41,7 @@ router = APIRouter(prefix="/certificates", tags=["certificates"])
 Session = Annotated[AsyncSession, Depends(get_db_session)]
 Caller = Annotated[Principal, Depends(get_principal)]
 Renderer = Annotated[certificate_pdf.PdfRenderer, Depends(get_pdf_renderer)]
+Config = Annotated[Settings, Depends(get_settings)]
 
 
 @router.get("", response_model=CertificatePage, dependencies=[Depends(forbid_cross_user_read)])
@@ -98,7 +100,7 @@ async def get_certificate(
 
 @router.get("/{certificate_id}/pdf", response_model=None)
 async def download_certificate_pdf(
-    certificate_id: uuid.UUID, session: Session, caller: Caller, render: Renderer
+    certificate_id: uuid.UUID, session: Session, caller: Caller, render: Renderer, settings: Config
 ) -> Response:
     """The certificate as a PDF, rendered on demand.
 
@@ -119,7 +121,9 @@ async def download_certificate_pdf(
         )
 
     document = await certificate_pdf.build_certificate_document(session, certificate=certificate)
-    pdf = render(build_certificate_html(document, now=utcnow()))
+    pdf = render(
+        build_certificate_html(document, now=utcnow(), verify_base_url=settings.public_base_url)
+    )
 
     if not is_owner:
         await append_audit(

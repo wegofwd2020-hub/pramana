@@ -91,6 +91,29 @@ class TestExpiry:
         assert ">Valid<" in html
 
 
+class TestVerificationLink:
+    """The verification link has to work off a printed page.
+
+    A certificate is a document someone holds in their hand. A relative path is
+    meaningless there — the link must be the full, externally reachable URL of
+    the deployment.
+    """
+
+    def test_an_absolute_link_is_used_when_a_base_url_is_given(self) -> None:
+        html = build_certificate_html(doc(), verify_base_url="https://mambakkam.net/pramana")
+        assert "https://mambakkam.net/pramana/certificates/verify/ABC123XYZ" in html
+
+    def test_no_double_slash_when_base_url_ends_in_slash(self) -> None:
+        html = build_certificate_html(doc(), verify_base_url="https://mambakkam.net/pramana/")
+        assert "https://mambakkam.net/pramana/certificates/verify/ABC123XYZ" in html
+        assert "pramana//certificates" not in html
+
+    def test_falls_back_to_a_relative_path_without_a_base_url(self) -> None:
+        """Dev and test have no external origin; a relative link still renders."""
+        html = build_certificate_html(doc())
+        assert "/certificates/verify/ABC123XYZ" in html
+
+
 class TestDeterminism:
     def test_the_same_document_renders_identically(self) -> None:
         """Re-rendering replaces storage, so it has to be reproducible."""

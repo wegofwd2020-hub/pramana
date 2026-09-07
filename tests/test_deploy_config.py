@@ -23,6 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = ROOT / "compose.yaml"
 DOCKERFILE = ROOT / "Dockerfile"
+NGINX = ROOT / "deploy" / "nginx" / "pramana.conf"
 
 
 class TestComposeExposure:
@@ -36,6 +37,49 @@ class TestComposeExposure:
                 f"API published as {mapping!r}; on a shared host that exposes it "
                 f"on the public IP, bypassing Cloudflare and TLS"
             )
+
+
+class TestNginxPathMount:
+    """The host nginx block is versioned here, not left to live only on the box.
+
+    Host nginx and its TLS certs sit outside compose and outside git; an
+    unversioned manual edit caused a July outage, and this plan adds a second —
+    compliance — app behind the same nginx. The block is codified so a review can
+    see it and a deploy can copy it.
+
+    Each assertion guards a silent failure:
+
+    * Wrong ``proxy_pass`` form and the path prefix is not stripped, so every
+      request 404s under ``/pramana``.
+    * Miss the real client address and every attestation records nginx's own IP —
+      a valid IP in the SOX audit chain identifying nobody. uvicorn already trusts
+      this hop (``--proxy-headers``); nginx has to supply the truth.
+    * Proxy anywhere but loopback and the container's ``127.0.0.1`` binding is
+      unreachable.
+    """
+
+    def test_the_config_exists(self) -> None:
+        assert NGINX.is_file(), (
+            "deploy/nginx/pramana.conf is missing; the host nginx block must be "
+            "versioned, not left to live only on the box"
+        )
+
+    def test_it_mounts_the_pramana_prefix(self) -> None:
+        assert re.search(r"location\s+/pramana/?\s*\{", NGINX.read_text(encoding="utf-8"))
+
+    def test_proxy_pass_strips_the_prefix(self) -> None:
+        """A trailing slash on the upstream URL is what drops ``/pramana``."""
+        text = NGINX.read_text(encoding="utf-8")
+        assert re.search(r"proxy_pass\s+http://127\.0\.0\.1:8000/\s*;", text), (
+            "proxy_pass must target 127.0.0.1:8000 with a trailing slash so the "
+            "/pramana prefix is stripped before it reaches the app"
+        )
+
+    def test_it_forwards_the_real_client_ip(self) -> None:
+        """Cloudflare's edge is the socket peer; CF-Connecting-IP carries the truth."""
+        text = NGINX.read_text(encoding="utf-8")
+        assert "CF-Connecting-IP" in text
+        assert re.search(r"proxy_set_header\s+X-Forwarded-For", text)
 
 
 class TestUvicornProxyTrust:

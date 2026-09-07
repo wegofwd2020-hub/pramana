@@ -70,6 +70,34 @@ class TestSettings:
         assert get_settings() is settings
 
 
+class TestRootPath:
+    """``root_path`` is derived from ``public_base_url`` so the two never drift.
+
+    Pramana is served under a path prefix (``mambakkam.net/pramana``). FastAPI
+    needs ``root_path`` to advertise the prefix in ``/docs`` and OpenAPI; the
+    certificate PDF needs the whole URL. Deriving the former from the latter
+    keeps a single source of truth.
+    """
+
+    def _settings(self, url: str) -> Settings:
+        return Settings(secret_key="x", public_base_url=url)  # type: ignore[call-arg]
+
+    def test_empty_base_url_yields_empty_root_path(self) -> None:
+        """The default single-host deployment mounts at the root."""
+        assert self._settings("").root_path == ""
+
+    def test_path_mount_yields_the_path(self) -> None:
+        assert self._settings("https://mambakkam.net/pramana").root_path == "/pramana"
+
+    def test_bare_subdomain_yields_empty_root_path(self) -> None:
+        """A dedicated subdomain has no prefix to strip."""
+        assert self._settings("https://pramana.mambakkam.net").root_path == ""
+
+    def test_trailing_slash_is_stripped(self) -> None:
+        """FastAPI expects a root_path without a trailing slash."""
+        assert self._settings("https://mambakkam.net/pramana/").root_path == "/pramana"
+
+
 class TestEnvExampleIsComplete:
     """``.env.example`` is the deployer's onboarding contract — keep it honest.
 

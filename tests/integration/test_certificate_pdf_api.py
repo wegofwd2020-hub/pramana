@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pramana.api.app import create_app
 from pramana.api.dependencies import get_db_session, get_pdf_renderer, get_principal
+from pramana.config import Settings, get_settings
 from pramana.db.models.audit import AuditLog
 from pramana.db.models.identity import RoleName, User
 from pramana.services import assignments as assign_svc
@@ -47,6 +48,7 @@ def _client(
     user_id: uuid.UUID,
     renderer: SpyRenderer,
     roles: frozenset[str] = frozenset(),
+    public_base_url: str = "",
 ) -> TestClient:
     app = create_app()
 
@@ -64,6 +66,9 @@ def _client(
         user_id=user_id, tenant_id=tenant_id, roles=roles
     )
     app.dependency_overrides[get_pdf_renderer] = lambda: renderer
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        secret_key="x", public_base_url=public_base_url
+    )  # type: ignore[call-arg]
     return TestClient(app)
 
 
@@ -140,6 +145,29 @@ class TestDownload:
 
         assert spy.html is not None
         assert str(seed.course_version_id) in spy.html
+
+    async def test_the_verification_link_is_absolute_under_a_path_mount(
+        self, db: AsyncSession, sessions: async_sessionmaker[AsyncSession]
+    ) -> None:
+        """A printed certificate needs the full URL — the deployment's own origin.
+
+        Proves the router threads ``public_base_url`` into the rendered document,
+        not just that the pure function can.
+        """
+        seed = await seed_course(db, n_questions=2)
+        cert_id = await _earn_certificate(db, seed)
+        spy = SpyRenderer()
+
+        _client(
+            sessions,
+            tenant_id=seed.tenant_id,
+            user_id=seed.user_id,
+            renderer=spy,
+            public_base_url="https://mambakkam.net/pramana",
+        ).get(f"/certificates/{cert_id}/pdf")
+
+        assert spy.html is not None
+        assert "https://mambakkam.net/pramana/certificates/verify/" in spy.html
 
     async def test_a_missing_certificate_is_404(
         self, db: AsyncSession, sessions: async_sessionmaker[AsyncSession]
