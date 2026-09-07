@@ -14,6 +14,7 @@ from __future__ import annotations
 from enum import StrEnum
 from functools import lru_cache
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -83,6 +84,15 @@ class Settings(BaseSettings):
     environment: Environment = Environment.DEVELOPMENT
     log_level: LogLevel = LogLevel.INFO
     secret_key: SecretStr
+
+    # The externally reachable origin (and path prefix) this deployment answers
+    # on, e.g. ``https://mambakkam.net/pramana`` for a path mount or
+    # ``https://pramana.mambakkam.net`` for a dedicated subdomain. Empty in
+    # dev/test. Two things need it and would otherwise be subtly wrong behind the
+    # proxy: the certificate PDF prints an absolute verification link (a relative
+    # path is meaningless on paper), and FastAPI needs ``root_path`` — derived
+    # below — so ``/docs`` and the OpenAPI ``servers`` URL account for the prefix.
+    public_base_url: str = ""
 
     # Database
     database_url: str = Field(default="postgresql+asyncpg://pramana:pramana@localhost:5432/pramana")
@@ -180,6 +190,16 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """Return True if running in production."""
         return self.environment == Environment.PRODUCTION
+
+    @property
+    def root_path(self) -> str:
+        """The URL path prefix this deployment is mounted under, or ``""``.
+
+        Derived from :attr:`public_base_url` so the two never drift: a path mount
+        (``…/pramana``) yields ``/pramana``, a bare host or subdomain yields
+        ``""``. FastAPI expects no trailing slash.
+        """
+        return urlsplit(self.public_base_url).path.rstrip("/")
 
 
 @lru_cache(maxsize=1)

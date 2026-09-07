@@ -54,6 +54,27 @@ class TestApiDocsExposure:
         assert _client(environment=Environment.PRODUCTION).get("/health").status_code == 200
 
 
+class TestPathMountRootPath:
+    """Served under ``mambakkam.net/pramana``, FastAPI must know its prefix.
+
+    Without ``root_path`` the OpenAPI ``servers`` URL and every link ``/docs``
+    generates point at the bare host, so an operator opening the docs behind the
+    proxy hits 404s. ``root_path`` is derived from ``public_base_url``.
+    """
+
+    def test_root_path_reflects_the_public_base_url_prefix(self) -> None:
+        app = create_app(
+            settings=Settings(secret_key="x", public_base_url="https://mambakkam.net/pramana")
+        )  # type: ignore[arg-type]
+        assert app.root_path == "/pramana"
+
+    def test_root_path_is_empty_without_a_prefix(self) -> None:
+        app = create_app(
+            settings=Settings(secret_key="x", public_base_url="https://pramana.mambakkam.net")
+        )  # type: ignore[arg-type]
+        assert app.root_path == ""
+
+
 class TestForwardedClientIp:
     """`--proxy-headers` is what makes these pass in a real deployment.
 
