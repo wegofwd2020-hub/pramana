@@ -24,8 +24,11 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
     "python-multipart>=0.0.12",
-    # Data validation & settings
-    "pydantic>=2.9.0",
+    # Data validation & settings. The [email] extra pulls email-validator, which
+    # pydantic imports lazily when a model builds an EmailStr field — several
+    # request schemas do, so without it test collection (and startup) fails with
+    # ModuleNotFoundError: email_validator.
+    "pydantic[email]>=2.9.0",
     "pydantic-settings>=2.5.0",
     # Database
     "sqlalchemy[asyncio]>=2.0.35",
