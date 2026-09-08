@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from pramana.config import get_settings
-from pramana.exceptions import DatabaseError
+from pramana.exceptions import DatabaseError, PramanaError
 
 
 @lru_cache(maxsize=1)
@@ -74,15 +74,23 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
         and rolled back on any exception.
 
     Raises:
-        DatabaseError: Wraps any underlying SQLAlchemy error so callers can
-            handle a single exception type.
+        DatabaseError: Wraps an *unexpected* error (e.g. a raw SQLAlchemy
+            failure) so callers can handle a single exception type.
     """
     sessionmaker_ = get_sessionmaker()
     session = sessionmaker_()
     try:
         yield session
         await session.commit()
-    except DatabaseError:
+    except PramanaError:
+        # The application's own typed errors — AuthenticationError,
+        # AuthorizationError, NotFoundError, DomainError, and so on — must reach
+        # the API's exception handler with their class intact. Every DB-backed
+        # route resolves its principal *inside* this scope, so those errors
+        # propagate back through here; wrapping them as DatabaseError would turn
+        # a 401/403/404 into a 502. Roll back the (untouched) transaction and
+        # re-raise unchanged. DatabaseError is itself a PramanaError, so this
+        # also covers the error already raised below on a re-entrant scope.
         await session.rollback()
         raise
     except Exception as exc:
