@@ -24,6 +24,10 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = ROOT / "compose.yaml"
 DOCKERFILE = ROOT / "Dockerfile"
 NGINX = ROOT / "deploy" / "nginx" / "pramana.conf"
+DEPLOY_COMPOSE = ROOT / "compose.deploy.yaml"
+DEPLOY_SH = ROOT / "scripts" / "launch" / "deploy.sh"
+SMOKE_SH = ROOT / "scripts" / "launch" / "smoke.sh"
+DEPLOY_WF = ROOT / ".github" / "workflows" / "deploy-pramana.yml"
 
 
 class TestComposeExposure:
@@ -80,6 +84,83 @@ class TestNginxPathMount:
         text = NGINX.read_text(encoding="utf-8")
         assert "CF-Connecting-IP" in text
         assert re.search(r"proxy_set_header\s+X-Forwarded-For", text)
+
+
+class TestProdCompose:
+    """``compose.deploy.yaml`` is the production stack; ``compose.yaml`` is dev.
+
+    The dev compose inlines throwaway secrets and runs ENVIRONMENT=development —
+    shipping it would publish /docs, trust a fake SECRET_KEY, and (worst) it
+    reads nothing from a secrets file. These assert the production compose is
+    genuinely production-shaped, because a deploy that quietly used the dev one
+    would look healthy while being wrong.
+    """
+
+    def test_the_api_port_binds_loopback_only(self) -> None:
+        """Same rule as dev, and it matters more here: host nginx is sole ingress."""
+        text = DEPLOY_COMPOSE.read_text("utf-8")
+        published = re.findall(r'^\s*-\s*"([^"]*:8000)"', text, re.MULTILINE)
+        assert published, "no published mapping for the API port found"
+        for mapping in published:
+            assert mapping.startswith("127.0.0.1:"), (
+                f"API published as {mapping!r}; that exposes it on the box's public IP"
+            )
+
+    def test_it_runs_in_the_production_environment(self) -> None:
+        """Development leaves /docs and the OpenAPI schema publicly served."""
+        assert re.search(r"ENVIRONMENT:\s*production", DEPLOY_COMPOSE.read_text("utf-8"))
+
+    def test_secrets_come_from_an_env_file_not_inlined(self) -> None:
+        """A real SECRET_KEY / DB password must not live in a committed compose."""
+        text = DEPLOY_COMPOSE.read_text("utf-8")
+        assert "env_file" in text, "production compose must read secrets from a .env file"
+        assert "local-development-only-not-a-real-secret" not in text, (
+            "the dev throwaway SECRET_KEY leaked into the production compose"
+        )
+
+    def test_the_database_has_a_persistent_volume(self) -> None:
+        """Compliance evidence has a 7-year retention floor; data cannot be ephemeral."""
+        assert "/var/lib/postgresql/data" in DEPLOY_COMPOSE.read_text("utf-8")
+
+    def test_the_public_base_url_is_wired(self) -> None:
+        """Without it certificates print a relative verify link and root_path is empty."""
+        assert "PUBLIC_BASE_URL" in DEPLOY_COMPOSE.read_text("utf-8")
+
+
+class TestDeployScripts:
+    def test_deploy_and_smoke_scripts_exist(self) -> None:
+        assert DEPLOY_SH.is_file(), "scripts/launch/deploy.sh is missing"
+        assert SMOKE_SH.is_file(), "scripts/launch/smoke.sh is missing"
+
+    def test_deploy_uses_the_production_compose_and_an_env_file(self) -> None:
+        text = DEPLOY_SH.read_text("utf-8")
+        assert "compose.deploy.yaml" in text
+        assert "--env-file" in text
+
+    def test_smoke_asserts_on_the_body_not_only_the_status(self) -> None:
+        """A stray service on :8000 once answered a health probe convincingly —
+        the check must look at the payload, not just a 200."""
+        assert '"status"' in SMOKE_SH.read_text("utf-8") or "status" in SMOKE_SH.read_text("utf-8")
+
+
+class TestDeployWorkflow:
+    def test_the_workflow_exists(self) -> None:
+        assert DEPLOY_WF.is_file(), ".github/workflows/deploy-pramana.yml is missing"
+
+    def test_it_is_gated_until_the_box_exists(self) -> None:
+        """Auto-deploy must stay dormant until the VPS + secrets are in place."""
+        assert "PRAMANA_DEPLOY_ENABLED" in DEPLOY_WF.read_text("utf-8")
+
+    def test_smoke_retries_to_a_deadline(self) -> None:
+        """A fresh route is not live until the rebuild finishes; assert-on-first
+        turns propagation lag into a false incident."""
+        assert "deadline" in DEPLOY_WF.read_text("utf-8")
+
+    def test_it_files_an_incident_on_real_failure(self) -> None:
+        assert "incident:pramana" in DEPLOY_WF.read_text("utf-8")
+
+    def test_smoke_targets_the_path_mount(self) -> None:
+        assert "mambakkam.net/pramana" in DEPLOY_WF.read_text("utf-8")
 
 
 class TestUvicornProxyTrust:

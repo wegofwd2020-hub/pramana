@@ -1,0 +1,144 @@
+name: Deploy Pramana
+
+# Auto-deploy Pramana to the mambakkam.net box on every push to main, plus a
+# manual trigger for forced redeploys. Pramana runs as its own compose stack
+# behind the host nginx /pramana path mount (see deploy/nginx/pramana.conf and
+# mambakkam-net/infra/nginx/mambakkam.net.conf).
+#
+# Sequence (~3 min):
+#   1. SSH to the box as the deploy user (PRAMANA_VPS_SSH_KEY)
+#   2. Run /opt/pramana/scripts/launch/deploy.sh (git pull, compose build/up
+#      with the migrate one-shot, local smoke)
+#   3. Run scripts/launch/smoke.sh against the public /pramana URL from the runner
+#   4. On smoke failure: open an issue tagged `incident:pramana`. Auto-rollback
+#      is intentionally NOT wired — an operator must triage (a bad migration is
+#      not undone by redeploying the previous image).
+#
+# Required repo secrets:
+#   PRAMANA_VPS_HOST     — hostname or IP of the box (same VPS as mambakkam.net)
+#   PRAMANA_VPS_USER     — typically `deploy`
+#   PRAMANA_VPS_SSH_KEY  — private SSH key for the deploy user
+#
+# Required repo variable (Settings -> Variables -> Actions):
+#   PRAMANA_DEPLOY_ENABLED — set to "true" only once the box is provisioned:
+#     /opt/pramana checked out, .env.deploy populated, and the nginx /pramana
+#     block installed + reloaded. Unset (default) -> this job skips with a
+#     "skipped" status, keeping the badge green pre-launch.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# A second push mid-deploy would race `docker compose up --build` against itself
+# on the box. Cancel the older run; the newer SHA deploys.
+concurrency:
+  group: deploy-pramana
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: vars.PRAMANA_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write   # for the failure-issue step
+
+    env:
+      PUBLIC_URL: https://mambakkam.net/pramana
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PRAMANA_VPS_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "${{ secrets.PRAMANA_VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Run deploy.sh on the box
+        run: |
+          ssh -i ~/.ssh/id_deploy \
+            "${{ secrets.PRAMANA_VPS_USER }}@${{ secrets.PRAMANA_VPS_HOST }}" \
+            'bash /opt/pramana/scripts/launch/deploy.sh'
+
+      - name: Public-side smoke
+        id: smoke
+        run: |
+          # deploy.sh returns once the containers are told to rebuild; the api
+          # can still be settling (migrate runs first, then the healthcheck
+          # start_period). And a commit that adds a new route only serves it once
+          # the new image is live. So retry to a deadline rather than asserting
+          # on the first attempt — otherwise propagation lag becomes a false
+          # incident. A real outage still fails, four minutes later.
+          deadline=$(( SECONDS + 240 ))
+          attempt=1
+          while true; do
+            if bash scripts/launch/smoke.sh "$PUBLIC_URL"; then
+              echo "::notice::smoke passed on attempt ${attempt}"
+              break
+            fi
+            if (( SECONDS >= deadline )); then
+              echo "::error::smoke still failing after ${attempt} attempts across 4 minutes"
+              exit 1
+            fi
+            echo "::notice::attempt ${attempt} failed — deploy may still be settling; retry in 20s"
+            attempt=$(( attempt + 1 ))
+            sleep 20
+          done
+
+      - name: File incident issue on smoke failure
+        if: failure() && steps.smoke.conclusion == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const title = `[incident] pramana deploy smoke failed @ ${context.sha.substring(0,7)}`;
+
+            // A re-run would otherwise file a second issue for the same commit.
+            // Comment on the existing one so the list stays one-per-incident.
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'incident:pramana',
+            });
+            const dupe = existing.data.find((i) => i.title === title);
+            if (dupe) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: dupe.number,
+                body: `Smoke failed again for this commit — ${runUrl}`,
+              });
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              labels: ['incident:pramana', 'priority:high'],
+              body: [
+                `Smoke failed after auto-deploy and kept failing for four minutes`,
+                `of retries — this is not the deploy still settling, which is`,
+                `already accounted for. Treat it as a real failure.`,
+                ``,
+                `**Workflow run:** ${runUrl}`,
+                `**Commit:** ${context.sha}`,
+                ``,
+                `**Triage checklist:**`,
+                `- [ ] Read the smoke output in the run to see which check failed`,
+                `- [ ] SSH to the box: \`ssh deploy@${{ secrets.PRAMANA_VPS_HOST }}\``,
+                `- [ ] \`cd /opt/pramana && sudo docker compose -f compose.deploy.yaml --env-file .env.deploy logs --tail 200\``,
+                `- [ ] Migration failure? The api never starts if \`migrate\` exits non-zero — check its logs first`,
+                `- [ ] Rollback if needed: \`sudo git -C /opt/pramana reset --hard <previous-sha> && bash scripts/launch/deploy.sh\``,
+                `- [ ] Re-run smoke locally on the box: \`bash scripts/launch/smoke.sh http://127.0.0.1:8000\``,
+                ``,
+                `Auto-rollback is intentionally not wired — a bad migration is not`,
+                `undone by redeploying, so an operator must decide.`,
+              ].join('\n'),
+            });
