@@ -132,7 +132,13 @@ async def test_migration_seed_insert(alembic_engine) -> None:  # type: ignore[no
         )
 
     # Confirm round-trip: downgrade removes the row, upgrade restores it.
-    _run_alembic("downgrade", "-1")
+    #
+    # Target 0010's own down_revision by name rather than "-1". A relative step
+    # means "one below head", so it silently stopped testing this migration the
+    # moment 0011 was added — the assertion below then compared the row against a
+    # downgrade that had not run 0010's downgrade() at all. Naming the revision
+    # keeps this test pinned to 0010 however many migrations land on top.
+    _run_alembic("downgrade", "0009_audit_log_grants")
     async with session_factory() as session:
         count_after_down = (
             await session.execute(text("SELECT count(*) FROM tenant WHERE short_code = 'consumer'"))
