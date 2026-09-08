@@ -72,6 +72,11 @@ WORKDIR /app
 COPY --chown=pramana:pramana alembic/ alembic/
 COPY --chown=pramana:pramana alembic.ini ./
 COPY --chown=pramana:pramana docs/frameworks/ docs/frameworks/
+# Operational scripts run *inside* this container — seed_user.py/grant_role.py
+# to bootstrap the first admin, archive_audit.py for WORM export. They are not
+# part of the installed package, so copy them explicitly or
+# `docker compose run api python scripts/…` fails with "No such file".
+COPY --chown=pramana:pramana scripts/ scripts/
 
 USER pramana
 EXPOSE 8000
