@@ -46,9 +46,19 @@ fi
 
 # ── 1. git pull ──────────────────────────────────────────────────────────────
 log "1/4  git fetch + reset --hard origin/main"
+# Every git call here goes through sudo, including the read below. The checkout
+# is owned by root, so a plain `git` as the deploy user aborts with "detected
+# dubious ownership" — git's protection against running hooks out of a tree
+# another account controls. Mixing the two silently breaks: the fetch and reset
+# succeed under sudo, then the bare read fails, and because this is a plain
+# assignment `set -e` ends the deploy at what looks like a git-pull failure.
+#
+# The sudoers policy must therefore allow `/usr/bin/git -C /opt/pramana *` for
+# the deploy user — the same rule that already exists for /opt/mambakkam and
+# /opt/studybuddy. See deploy/README.md.
 if sudo git -C "$INSTALL_DIR" fetch origin main && \
    sudo git -C "$INSTALL_DIR" reset --hard origin/main; then
-  HEAD_SHA="$(git -C "$INSTALL_DIR" rev-parse --short HEAD)"
+  HEAD_SHA="$(sudo git -C "$INSTALL_DIR" rev-parse --short HEAD)"
   ok "now at $HEAD_SHA"
 else
   err "git pull failed"
