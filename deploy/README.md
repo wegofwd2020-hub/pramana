@@ -87,6 +87,31 @@ sudo nginx -t && sudo systemctl reload nginx
 bash scripts/launch/smoke.sh https://mambakkam.net/pramana
 ```
 
+## Box prerequisite: the sudoers rule
+
+`deploy.sh` runs `sudo git -C /opt/pramana …`, so the deploy user needs that in
+its sudoers policy. The box already grants the equivalent for the two older apps
+and Pramana was never added, so verify before enabling auto-deploy:
+
+```bash
+ssh deploy@<host> 'sudo -n -l'
+```
+
+The output must contain a `git -C /opt/pramana` entry alongside the existing
+`/opt/mambakkam` and `/opt/studybuddy` ones. If it does not, add it as root:
+
+```bash
+# as root on the box
+echo 'deploy ALL=(root) NOPASSWD: /usr/bin/git -C /opt/pramana *' \
+  > /etc/sudoers.d/pramana-deploy
+chmod 440 /etc/sudoers.d/pramana-deploy
+visudo -c            # MUST print "parsed OK" — a malformed file locks out sudo
+```
+
+Without it the first deploy exits 1 at "git pull failed". A plain non-sudo `git`
+is not the workaround: `/opt/pramana` is root-owned, so git refuses with
+"detected dubious ownership".
+
 ## Enabling auto-deploy
 
 Once the box is provisioned and `.env.deploy` is in place, set **four** repo
