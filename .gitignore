@@ -5,6 +5,12 @@ __pycache__/
 # Packaging / build metadata
 *.egg-info/
 
+# Local virtualenvs. Nothing here matched one before, so every local venv showed
+# up as untracked and a stray `git add -A` could have committed it.
+.venv/
+venv/
+.venv-*/
+
 # Local secrets (symlinked from ~/.secrets by link-secrets; never commit)
 .env
 .env.*

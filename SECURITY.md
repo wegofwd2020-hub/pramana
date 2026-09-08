@@ -53,7 +53,19 @@
    pramana_app    -- APP_DB_ROLE; SELECT/INSERT on audit_log, no UPDATE/DELETE
    ```
 
-   *Status: `TICKETS/PR-1` stays open until a deployment actually adopts this. The code side is done; the control is only real once the roles are split.*
+   *Status: `TICKETS/PR-1` stays open until a deployment actually adopts this. The code side is done and now has an acceptance test — `tests/integration/test_audit_role_privileges.py` builds the two-role topology against a real Postgres and asserts the refusal arrives as SQLSTATE **42501** (`InsufficientPrivilege`), not **P0001** (the trigger). That distinction is the test: a check that accepted either would pass just as happily with no grants applied, which is the state every deployment is in today.*
+
+3. **TRUNCATE was the hole in append-only, and is now closed for everyone (migration `0011`).** The `0001` triggers are declared `FOR EACH ROW`, and **row-level triggers do not fire on TRUNCATE**. Verified against Postgres 16 with exactly that trigger shape:
+
+   ```
+   UPDATE    blocked   (P0001)
+   DELETE    blocked   (P0001)
+   TRUNCATE  SUCCEEDED — every row gone
+   ```
+
+   So the entire audit log could be erased in one statement, and the hash chain cannot detect it: the chain proves rows were not *altered*, and an empty table has no chain left to check. Only whatever had already reached the WORM archive would survive.
+
+   `0009` does not cover this — it revokes from `APP_DB_ROLE`, which is unset everywhere, and an owner keeps its privileges regardless. `0011` adds `BEFORE TRUNCATE ... FOR EACH STATEMENT` triggers on `audit_log` and `audit_archive_segment`, which fire for **every** role including the owner, so the control holds in the single-role topology that is actually running. It does not replace the two-role split — a superuser can still drop the trigger, which is exactly what the app role must not be able to do.
 
 **Application security**
 - Input validation; parameterized queries only (no string-built SQL) to prevent injection.
