@@ -187,3 +187,74 @@ class TestArchiving:
 
 def _now() -> datetime:
     return datetime(2026, 8, 29, tzinfo=UTC)
+
+
+class TestArchiveContinuityAgainstRealSegments:
+    """The archive-level check, over rows the archiver actually wrote (PR-2)."""
+
+    async def test_a_healthy_archive_reports_intact(self, db: AsyncSession) -> None:
+        tenant_id = await seed_events(db, 2)
+        store = FakeStore()
+        await svc.archive_pending(db, upload=store, now=_now())
+        await db.commit()
+        await append_audit(
+            db,
+            tenant_id=tenant_id,
+            entity_type="test",
+            entity_id="later",
+            event_type="test.event",
+            payload={},
+            occurred_at=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+        await db.commit()
+        await svc.archive_pending(db, upload=store, now=_now())
+        await db.commit()
+
+        result = await svc.verify_archive(db)
+        assert result.intact
+        assert result.segment_count == 2
+
+    async def test_an_empty_archive_is_intact_not_broken(self, db: AsyncSession) -> None:
+        await seed_events(db, 2)
+        result = await svc.verify_archive(db)
+        assert result.intact
+        assert result.covered_through is None
+
+    async def test_deleting_a_segment_row_is_detected(self, db: AsyncSession) -> None:
+        """The failure the manifests exist for, exercised end to end.
+
+        Losing the bookkeeping for a middle segment is what a tamperer would do
+        to hide a range: the remaining rows still chain internally, and only the
+        segment-level check notices the hole.
+        """
+        tenant_id = await seed_events(db, 2)
+        store = FakeStore()
+        await svc.archive_pending(db, upload=store, batch_size=1, now=_now())
+        await db.commit()
+        await svc.archive_pending(db, upload=store, batch_size=1, now=_now())
+        await db.commit()
+        await append_audit(
+            db,
+            tenant_id=tenant_id,
+            entity_type="test",
+            entity_id="third",
+            event_type="test.event",
+            payload={},
+            occurred_at=datetime(2026, 1, 3, tzinfo=UTC),
+        )
+        await db.commit()
+        await svc.archive_pending(db, upload=store, batch_size=1, now=_now())
+        await db.commit()
+
+        assert (await svc.verify_archive(db)).intact, "precondition: archive starts intact"
+
+        recorded = await _segments(db)
+        assert len(recorded) == 3
+        await db.delete(recorded[1])
+        await db.commit()
+
+        result = await svc.verify_archive(db)
+        assert not result.intact
+        assert len(result.gaps) == 1
+        assert result.gaps[0].after_audit_id == recorded[0].last_audit_id
+        assert result.gaps[0].before_audit_id == recorded[2].first_audit_id
