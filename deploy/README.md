@@ -34,7 +34,8 @@ SECRET_KEY=<64+ random chars>            # openssl rand -hex 48
 PUBLIC_BASE_URL=https://mambakkam.net/pramana
 
 # --- Database (own Postgres container) ---
-POSTGRES_PASSWORD=<strong random>        # DATABASE_URL is derived from this in compose
+POSTGRES_PASSWORD=<strong random>        # passed to the app via PGPASSWORD (not the URL),
+                                         # so any characters are safe — no URL-escaping needed.
 # API_PORT defaults to 8000; only set to change the loopback port nginx proxies to.
 
 # --- Auth / OIDC (Auth0 — deploy task 3) ---

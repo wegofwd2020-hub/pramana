@@ -127,6 +127,40 @@ class TestProdCompose:
         assert "PUBLIC_BASE_URL" in DEPLOY_COMPOSE.read_text("utf-8")
 
 
+class TestDatabasePasswordIsNotUrlEmbedded:
+    """The DB password must never be interpolated into the DSN.
+
+    A password with a URL-special char (``@ : / # ? % =``) corrupts
+    ``postgresql+asyncpg://pramana:<pw>@postgres`` — asyncpg then parses the
+    wrong host/password and authentication fails. This bit a real Day-0 deploy
+    (base64 password). asyncpg honours the libpq ``PGPASSWORD`` env var when the
+    DSN omits the password, so it travels as a plain literal — like Postgres's
+    own ``POSTGRES_PASSWORD`` — and is never URL-parsed.
+    """
+
+    def _database_url_lines(self) -> list[str]:
+        return [
+            line
+            for line in DEPLOY_COMPOSE.read_text("utf-8").splitlines()
+            if "DATABASE_URL" in line
+        ]
+
+    def test_the_password_is_not_interpolated_into_the_dsn(self) -> None:
+        lines = self._database_url_lines()
+        assert lines, "no DATABASE_URL found in the production compose"
+        for line in lines:
+            assert "POSTGRES_PASSWORD" not in line, (
+                "the DB password is interpolated into DATABASE_URL; a URL-special "
+                "character corrupts the DSN. Omit the password from the URL and "
+                "pass it via PGPASSWORD instead."
+            )
+            # Belt-and-braces: the userinfo must carry no password (`user:pw@`).
+            assert "pramana:" not in line, "DATABASE_URL still embeds a password"
+
+    def test_the_password_travels_via_pgpassword(self) -> None:
+        assert "PGPASSWORD" in DEPLOY_COMPOSE.read_text("utf-8")
+
+
 class TestDeployScripts:
     def test_deploy_and_smoke_scripts_exist(self) -> None:
         assert DEPLOY_SH.is_file(), "scripts/launch/deploy.sh is missing"
