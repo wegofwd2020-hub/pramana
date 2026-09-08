@@ -210,3 +210,22 @@ class TestUvicornProxyTrust:
 
     def test_a_trusted_proxy_is_configured(self) -> None:
         assert "--forwarded-allow-ips" in DOCKERFILE.read_text(encoding="utf-8")
+
+
+class TestImageShipsOperationalScripts:
+    """The runtime image must contain ``scripts/``.
+
+    A fresh deployment is bootstrapped by scripts that run *inside* the api
+    container — ``seed_user.py``/``grant_role.py`` to make the first admin,
+    ``archive_audit.py`` for WORM export. If the Dockerfile copies only the
+    package and alembic, ``docker compose run api python scripts/…`` fails with
+    "No such file or directory", which is exactly how the first admin seed broke
+    on the box.
+    """
+
+    def test_scripts_are_copied_into_the_runtime_stage(self) -> None:
+        text = DOCKERFILE.read_text(encoding="utf-8")
+        assert re.search(r"COPY[^\n]*\bscripts/\s+scripts/", text), (
+            "the Dockerfile does not copy scripts/ into the image, so the "
+            "bootstrap scripts cannot run inside the api container"
+        )
