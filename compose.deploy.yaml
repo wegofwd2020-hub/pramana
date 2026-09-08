@@ -1,0 +1,114 @@
+# =============================================================================
+# compose.deploy.yaml — production stack for the mambakkam.net box
+#
+# Used ALONE (not layered on compose.yaml — that one is dev, with throwaway
+# inline secrets and ENVIRONMENT=development). Run by scripts/launch/deploy.sh
+# and .github/workflows/deploy-pramana.yml as:
+#
+#   docker compose -f compose.deploy.yaml --env-file .env.deploy up -d --build
+#
+# `--env-file .env.deploy` feeds compose's ${VAR} interpolation below; the same
+# file is passed into the containers via `env_file:` so the application reads
+# SECRET_KEY, the OIDC settings, S3, the HMAC secrets, etc. from it. The file is
+# NOT in git — the operator creates it on the box. See deploy/README.md for the
+# full key list.
+#
+# Production-shape choices, and why:
+#   - Own Postgres container with a persistent named volume. Compliance evidence
+#     has a 7-year retention floor (SECURITY.md), so the data cannot be
+#     ephemeral. It publishes NO port — only the api service, on the compose
+#     network, reaches it.
+#   - api binds 127.0.0.1 only: host nginx (mambakkam.net/pramana) is the sole
+#     ingress. Publishing on 0.0.0.0 would put a compliance product on the box's
+#     public IP, past Cloudflare and past TLS, beside the co-tenant StudyBuddy.
+#   - migrate is a discrete one-shot that must COMPLETE before api starts. Not an
+#     entrypoint step: 0007 (role seed) and 0009 (audit_log grants) are unsafe to
+#     run concurrently, which an N-replica entrypoint would do.
+#   - restart: always so both survive a docker daemon restart on boot.
+#   - resource limits so a runaway Pramana can't starve the co-tenant stacks.
+# =============================================================================
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: pramana-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: pramana
+      # `:?` — compose refuses to start (loudly) if the file is missing the key,
+      # rather than silently booting Postgres with a blank/default password.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.deploy}
+      POSTGRES_DB: pramana
+    # No `ports:` — the database is reachable only from the api/migrate services
+    # over the compose network, never from the host or the public IP.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pramana -d pramana"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+    volumes:
+      - pramana-pgdata:/var/lib/postgresql/data
+
+  migrate:
+    build: .
+    image: pramana:latest
+    container_name: pramana-migrate
+    command: ["alembic", "upgrade", "head"]
+    env_file:
+      - .env.deploy
+    environment:
+      # Derived here so only POSTGRES_PASSWORD has to be set once; points at the
+      # compose-network postgres service, not localhost.
+      DATABASE_URL: postgresql+asyncpg://pramana:${POSTGRES_PASSWORD:?}@postgres:5432/pramana
+      ENVIRONMENT: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: .
+    image: pramana:latest
+    container_name: pramana-api
+    restart: always
+    # Loopback only — host nginx is the sole ingress. See the header.
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    env_file:
+      - .env.deploy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://pramana:${POSTGRES_PASSWORD:?}@postgres:5432/pramana
+      ENVIRONMENT: production
+      # Externally reachable origin + path prefix. Drives the certificate verify
+      # link and FastAPI root_path. `:?` because a production deploy that forgot
+      # it would print relative verify links and mount /docs at the wrong path.
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?set PUBLIC_BASE_URL, e.g. https://mambakkam.net/pramana}
+      # Whose X-Forwarded-For uvicorn believes. The nginx hop hands us the real
+      # client (CF-Connecting-IP); this must be the compose gateway, never "*".
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.16.0.0/12}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 768M
+
+volumes:
+  pramana-pgdata:
