@@ -62,9 +62,13 @@ services:
     env_file:
       - .env.deploy
     environment:
-      # Derived here so only POSTGRES_PASSWORD has to be set once; points at the
-      # compose-network postgres service, not localhost.
-      DATABASE_URL: postgresql+asyncpg://pramana:${POSTGRES_PASSWORD:?}@postgres:5432/pramana
+      # The password is deliberately NOT in the URL. A URL-special character
+      # (@ : / # ? % =) in POSTGRES_PASSWORD would corrupt the DSN and auth would
+      # fail (it did, on a base64 password). asyncpg reads the libpq PGPASSWORD
+      # env var when the DSN omits the password, so it travels as a plain literal
+      # — exactly like Postgres's own POSTGRES_PASSWORD — and any character is safe.
+      DATABASE_URL: postgresql+asyncpg://pramana@postgres:5432/pramana
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.deploy}
       ENVIRONMENT: production
     depends_on:
       postgres:
@@ -82,7 +86,9 @@ services:
     env_file:
       - .env.deploy
     environment:
-      DATABASE_URL: postgresql+asyncpg://pramana:${POSTGRES_PASSWORD:?}@postgres:5432/pramana
+      # Password via PGPASSWORD, not the URL — see the migrate service above.
+      DATABASE_URL: postgresql+asyncpg://pramana@postgres:5432/pramana
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.deploy}
       ENVIRONMENT: production
       # Externally reachable origin + path prefix. Drives the certificate verify
       # link and FastAPI root_path. `:?` because a production deploy that forgot
