@@ -89,7 +89,34 @@ bash scripts/launch/smoke.sh https://mambakkam.net/pramana
 
 ## Enabling auto-deploy
 
-Once the box is provisioned and `.env.deploy` is in place, set the three repo
-secrets (`PRAMANA_VPS_HOST`, `PRAMANA_VPS_USER`, `PRAMANA_VPS_SSH_KEY`) and the
-repo variable `PRAMANA_DEPLOY_ENABLED=true`. Until then the workflow skips
+Once the box is provisioned and `.env.deploy` is in place, set **four** repo
+secrets, then the repo variable. Until the variable is set the workflow skips
 cleanly, keeping the badge green.
+
+| Secret | Value | Capture it with |
+|---|---|---|
+| `PRAMANA_VPS_HOST` | hostname or IP of the box | — |
+| `PRAMANA_VPS_USER` | the deploy user, typically `deploy` | — |
+| `PRAMANA_VPS_SSH_KEY` | **private** key for that user | `ssh-keygen -t ed25519 -f ~/.ssh/pramana_deploy` — a dedicated pair, not a personal key |
+| `PRAMANA_VPS_HOST_KEY` | the box's **public** host key, one `known_hosts` line | `ssh-keyscan -t ed25519 <host>` |
+
+```bash
+gh secret set PRAMANA_VPS_HOST    --repo wegofwd2020-hub/pramana
+gh secret set PRAMANA_VPS_USER    --repo wegofwd2020-hub/pramana
+gh secret set PRAMANA_VPS_SSH_KEY --repo wegofwd2020-hub/pramana < ~/.ssh/pramana_deploy
+ssh-keyscan -t ed25519 <host> | gh secret set PRAMANA_VPS_HOST_KEY --repo wegofwd2020-hub/pramana
+
+# LAST — enabling before the secrets exist turns main red at the SSH step:
+gh variable set PRAMANA_DEPLOY_ENABLED --repo wegofwd2020-hub/pramana --body true
+```
+
+`PRAMANA_VPS_HOST_KEY` holds a **public** key, which reads oddly for a secret.
+It is the key the box presents to prove it is the box, and storing it pins it:
+the runner compares what the box offers against this copy and refuses on a
+mismatch. Confidentiality is irrelevant for it; **integrity is the point**. So
+capture it once, from a network you trust — that single deliberate act replaces
+the `ssh-keyscan`-on-every-run the workflow used to do, which trusted whatever
+answered on that address.
+
+Only `PRAMANA_VPS_SSH_KEY` is a real credential. Piping from a file as above
+keeps it off the terminal and out of shell history.
