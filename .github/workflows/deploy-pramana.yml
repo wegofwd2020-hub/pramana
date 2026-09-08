@@ -15,9 +15,13 @@ name: Deploy Pramana
 #      not undone by redeploying the previous image).
 #
 # Required repo secrets:
-#   PRAMANA_VPS_HOST     — hostname or IP of the box (same VPS as mambakkam.net)
-#   PRAMANA_VPS_USER     — typically `deploy`
-#   PRAMANA_VPS_SSH_KEY  — private SSH key for the deploy user
+#   PRAMANA_VPS_HOST      — hostname or IP of the box (same VPS as mambakkam.net)
+#   PRAMANA_VPS_USER      — typically `deploy`
+#   PRAMANA_VPS_SSH_KEY   — private SSH key for the deploy user
+#   PRAMANA_VPS_HOST_KEY  — the box's PUBLIC host key, as one known_hosts line.
+#     Capture once from a host you trust: `ssh-keyscan -t ed25519 <host>`.
+#     Without it the job fails closed rather than trusting whatever the network
+#     answers with — see the "Set up SSH" step for why that matters here.
 #
 # Required repo variable (Settings -> Variables -> Actions):
 #   PRAMANA_DEPLOY_ENABLED — set to "true" only once the box is provisioned:
@@ -52,17 +56,54 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # SECURITY: secret values are passed through `env:` and dereferenced as
+      # "$VAR" rather than interpolated as ${{ }} directly into the script body
+      # — the same pattern the wegofwd-video watch workflow documents. Inline
+      # interpolation splices the value into the shell source before bash parses
+      # it, so a key or hostname containing shell metacharacters would execute.
       - name: Set up SSH
+        env:
+          SSH_KEY:  ${{ secrets.PRAMANA_VPS_SSH_KEY }}
+          HOST_KEY: ${{ secrets.PRAMANA_VPS_HOST_KEY }}
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.PRAMANA_VPS_SSH_KEY }}" > ~/.ssh/id_deploy
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+
+          # printf, not echo: a secret stored without a trailing newline makes
+          # ssh reject the key as "invalid format", which reads like a wrong key
+          # rather than a wrong file ending.
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
-          ssh-keyscan -H "${{ secrets.PRAMANA_VPS_HOST }}" >> ~/.ssh/known_hosts
+
+          # Pin the host key instead of ssh-keyscan'ing it on every run.
+          #
+          # keyscan is trust-on-first-use *every single time*: it accepts
+          # whatever the network answers with, then immediately trusts it. Anyone
+          # able to spoof DNS or routing between the GitHub runner and the box
+          # receives this deploy session — and the deploy user can rewrite a
+          # compliance application and its database. Pinning turns that from
+          # "silently deploys to the attacker" into a hard failure.
+          #
+          # Capture the value once, from a host you trust:
+          #     ssh-keyscan -t ed25519 <host>
+          # and store the resulting line as the PRAMANA_VPS_HOST_KEY secret.
+          if [[ -z "${HOST_KEY:-}" ]]; then
+            echo "::error::PRAMANA_VPS_HOST_KEY is unset — refusing to trust an unverified host key. See the comment in this workflow for how to capture it."
+            exit 1
+          fi
+          printf '%s\n' "$HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
       - name: Run deploy.sh on the box
+        env:
+          VPS_USER: ${{ secrets.PRAMANA_VPS_USER }}
+          VPS_HOST: ${{ secrets.PRAMANA_VPS_HOST }}
         run: |
+          set -euo pipefail
           ssh -i ~/.ssh/id_deploy \
-            "${{ secrets.PRAMANA_VPS_USER }}@${{ secrets.PRAMANA_VPS_HOST }}" \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "${VPS_USER}@${VPS_HOST}" \
             'bash /opt/pramana/scripts/launch/deploy.sh'
 
       - name: Public-side smoke
@@ -132,7 +173,13 @@ jobs:
                 ``,
                 `**Triage checklist:**`,
                 `- [ ] Read the smoke output in the run to see which check failed`,
-                `- [ ] SSH to the box: \`ssh deploy@${{ secrets.PRAMANA_VPS_HOST }}\``,
+                // The host stays out of this body on purpose: this repo is
+                // public, so an incident issue is a public document. Naming the
+                // production host of a compliance application in one publishes
+                // it to anyone watching. The operator triaging already knows
+                // which box to reach — and it is held as a repo secret, which
+                // GitHub masks in logs but NOT in issue bodies a workflow writes.
+                `- [ ] SSH to the box as the deploy user (host is in the PRAMANA_VPS_HOST secret)`,
                 `- [ ] \`cd /opt/pramana && sudo docker compose -f compose.deploy.yaml --env-file .env.deploy logs --tail 200\``,
                 `- [ ] Migration failure? The api never starts if \`migrate\` exits non-zero — check its logs first`,
                 `- [ ] Rollback if needed: \`sudo git -C /opt/pramana reset --hard <previous-sha> && bash scripts/launch/deploy.sh\``,
