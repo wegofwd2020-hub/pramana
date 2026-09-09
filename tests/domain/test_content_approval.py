@@ -14,6 +14,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from pramana.domain import content_approval as ca
 from pramana.domain.content_approval import (
     ContentDraftSnapshot,
     approve,
@@ -35,6 +36,11 @@ GENERATOR = uuid.uuid4()
 APPROVER = uuid.uuid4()
 HASH = "sha256:" + "ab" * 8
 VERSION_ID = uuid.uuid4()
+
+# Constants for video attestation tests
+GENERATOR_ID = uuid.uuid4()
+APPROVER_ID = uuid.uuid4()
+ATTESTER_ID = uuid.uuid4()
 
 
 # ---------------------------------------------------------------------------
@@ -169,3 +175,120 @@ def test_no_transition_out_of_terminal(status: ContentDraftStatus) -> None:
         reject(s)
     with pytest.raises(InvalidStateTransitionError):
         publish(s, course_version_id=VERSION_ID)
+
+
+class TestVideoFidelityAttestation:
+    """The second gate: the rendered bytes, not the script's claims."""
+
+    def _approved(self, **overrides) -> ca.ContentDraftSnapshot:
+        base = {
+            "status": ContentDraftStatus.APPROVED,
+            "has_content": True,
+            "has_video": True,
+            "generated_by_user_id": GENERATOR_ID,
+            "approved_by_user_id": APPROVER_ID,
+            "approved_at": NOW,
+            "content_hash": "sha256:script",
+        }
+        base.update(overrides)
+        return ca.ContentDraftSnapshot(**base)
+
+    def test_publish_refuses_a_draft_whose_video_is_not_attested(self) -> None:
+        """The load-bearing invariant. Without it, gate 2 is advisory."""
+        with pytest.raises(InvalidStateTransitionError) as ei:
+            ca.publish(self._approved(), course_version_id=uuid.uuid4())
+        assert "attest" in str(ei.value).lower()
+
+    def test_publish_allows_a_draft_with_no_video_at_all(self) -> None:
+        """A quiz-only course is valid and must not be blocked by this gate."""
+        version_id = uuid.uuid4()
+        new = ca.publish(self._approved(has_video=False), course_version_id=version_id)
+        assert new.status is ContentDraftStatus.PUBLISHED
+
+    def test_publish_allows_an_attested_video(self) -> None:
+        attested = ca.attest_video(
+            self._approved(),
+            attester_user_id=ATTESTER_ID,
+            video_asset_hash="sha256:bytes",
+            now=NOW,
+        )
+        new = ca.publish(attested, course_version_id=uuid.uuid4())
+        assert new.status is ContentDraftStatus.PUBLISHED
+
+    def test_the_attester_may_not_be_the_generator(self) -> None:
+        with pytest.raises(SeparationOfDutiesError):
+            ca.attest_video(
+                self._approved(),
+                attester_user_id=GENERATOR_ID,
+                video_asset_hash="sha256:bytes",
+                now=NOW,
+            )
+
+    def test_a_draft_with_no_generator_can_still_be_attested(self) -> None:
+        """generated_by_user_id is nullable; system-seeded drafts must not deadlock."""
+        snapshot = self._approved(generated_by_user_id=None)
+        attested = ca.attest_video(
+            snapshot, attester_user_id=ATTESTER_ID, video_asset_hash="sha256:b", now=NOW
+        )
+        assert attested.video_attested_by_user_id == ATTESTER_ID
+
+    def test_cannot_attest_a_draft_that_carries_no_video(self) -> None:
+        with pytest.raises(InvalidStateTransitionError):
+            ca.attest_video(
+                self._approved(has_video=False),
+                attester_user_id=ATTESTER_ID,
+                video_asset_hash="sha256:bytes",
+                now=NOW,
+            )
+
+    def test_cannot_attest_before_the_script_is_approved(self) -> None:
+        """Fidelity is 'matches the approved script' — there must be one."""
+        in_review = ca.ContentDraftSnapshot(
+            status=ContentDraftStatus.IN_REVIEW,
+            has_content=True,
+            has_video=True,
+            generated_by_user_id=GENERATOR_ID,
+        )
+        with pytest.raises(InvalidStateTransitionError):
+            ca.attest_video(
+                in_review, attester_user_id=ATTESTER_ID, video_asset_hash="sha256:b", now=NOW
+            )
+
+    def test_attestation_requires_a_non_empty_asset_hash(self) -> None:
+        with pytest.raises(InvalidStateTransitionError):
+            ca.attest_video(
+                self._approved(), attester_user_id=ATTESTER_ID, video_asset_hash="", now=NOW
+            )
+
+    def test_attestation_requires_an_aware_timestamp(self) -> None:
+        with pytest.raises(InvalidStateTransitionError):
+            ca.attest_video(
+                self._approved(),
+                attester_user_id=ATTESTER_ID,
+                video_asset_hash="sha256:b",
+                now=datetime(2026, 9, 9, 12, 0, 0),
+            )
+
+    def test_attestation_fields_must_be_set_together(self) -> None:
+        with pytest.raises(ValueError):
+            ca.ContentDraftSnapshot(
+                status=ContentDraftStatus.APPROVED,
+                has_content=True,
+                has_video=True,
+                approved_by_user_id=APPROVER_ID,
+                approved_at=NOW,
+                content_hash="sha256:script",
+                video_attested_by_user_id=ATTESTER_ID,
+                video_attested_at=None,
+            )
+
+    def test_script_approval_survives_video_attestation(self) -> None:
+        """Gate 2 must not overwrite gate 1's evidence."""
+        attested = ca.attest_video(
+            self._approved(),
+            attester_user_id=ATTESTER_ID,
+            video_asset_hash="sha256:bytes",
+            now=NOW,
+        )
+        assert attested.approved_by_user_id == APPROVER_ID
+        assert attested.content_hash == "sha256:script"
