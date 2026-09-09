@@ -28,6 +28,45 @@ built the seam, the state machine, and the DB constraints. Open item 6 from
 decision #274, and who records that) is answered: yes, and this ticket +
 `docs/02_resolved_decisions.md` are where it's recorded.
 
+**ACCEPTANCE GAP — the transcript is persisted but never reaches the
+learner.** `course_version.transcript` (added by `0012`, pinned to the
+certificate at publish, proven end-to-end in
+`tests/integration/test_publish_transcript.py`) is currently **write-only**.
+A repo-wide grep finds writers and tests and no readers: `services/player.py`
+(`get_player_manifest` / `PlayerManifest`) and `services/consumer/play.py`
+(`start_view` / `PlaySessionManifest`) both build their manifests from
+`CourseVersion` without ever reading `.transcript`, and no response schema in
+`pramana/api/schemas.py` (`PlayerManifestOut` et al.) carries a `transcript`
+field. Since the pilot's briefs render silent footage (`native_audio=False`
+on the local-preview path — see "Audio is not covered" below), **a learner
+who opens the pilot lesson today gets silent video and zero words.** This is
+exactly the unreachable-control failure mode this ticket's own spec warns
+against, not a nice-to-have. Wiring it is real scope, deliberately not done
+here: it needs `PlayerManifest`/`PlaySessionManifest` to gain a `transcript`
+field, `get_player_manifest`/`start_view` to read `version.transcript`, and
+`pramana/api/schemas.py`'s player-manifest response model(s) to carry it
+through to the client. Do not ship the pilot to a real learner before this is
+closed.
+
+**Render environment (the `render` extra) — pin, and why.** The spec's
+argument for rendering locally at all is reproducibility ("deterministic by
+seed; same seed and same torch build reproduce the frames"), which is what
+makes local a *compliance* choice, not a cost one — so the environment that
+produced a given render has to be pinned, not folklore. `pyproject.toml` now
+declares a `render` extra: `wegofwd-video[local]`, `transformers==5.16.1`,
+and `torch==2.14.0`. The `transformers` pin exists because
+`transformers==5.17.0` SIGILLs mid-encode on the CPU this was verified on;
+`wegofwd-video[local]`'s own extra declares `transformers>=4.56` with no
+upper bound, so without this pin the next `pip install` can silently resolve
+5.17 and reintroduce the crash. **CPU torch must still be installed from the
+CPU wheel index, not PyPI's default** — a `pyproject.toml` extra cannot
+express an `--index-url`, so this cannot be enforced by the extra alone:
+
+```
+pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu
+pip install -e '.[render]'
+```
+
 **Render numbers — not yet filled in.** The actual SOX-pilot render
 (duration, resolution, wall-clock time, peak memory, cost) has not completed
 as of this writing; a run was in progress on `mambakkam` when this section

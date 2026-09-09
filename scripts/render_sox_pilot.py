@@ -183,13 +183,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     for i, brief in enumerate(plan.briefs):
         print(f"  scene {i}: {brief.shots[0].dialogue}")
+
+    # Resolve the role BEFORE the dry-run early return. Validating geometry while
+    # the provider is absent is how this script once reported a healthy plan and
+    # then died six minutes later at resolve_role.
+    try:
+        import wegofwd_video as wv
+
+        provider_id, model = wv.resolve_role("local-preview")
+    except ImportError as exc:  # pragma: no cover - depends on the render extra
+        raise SystemExit(
+            "wegofwd_video is not importable; install the render extra: pip install -e '.[render]'"
+        ) from exc
+    print(f"[ role       ] local-preview -> {provider_id} / {model}")
     if args.dry_run:
         return 0
 
-    # Imported here so --dry-run needs neither torch nor the [local] extra.
-    import wegofwd_video as wv
-
-    provider_id, model = wv.resolve_role("local-preview")
     # steps/guidance/timeout/on_progress/threads belong to the PROVIDER, not
     # the request — an earlier revision of this harness got that backwards.
     provider = wv.build_provider(

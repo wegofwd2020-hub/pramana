@@ -55,3 +55,19 @@ def test_plan_refuses_a_single_render_over_the_provider_cap() -> None:
 
 def test_sha256_of_a_known_byte_string() -> None:
     assert harness.sha256_bytes(b"abc").startswith("sha256:ba7816bf")
+
+
+def test_dry_run_names_the_resolved_provider(capsys: pytest.CaptureFixture[str]) -> None:
+    """--dry-run must still resolve the provider role, not just print a plan.
+
+    A demonstrated defect on this branch: the early return sat above
+    ``resolve_role``, so ``--dry-run`` printed a healthy plan while the
+    provider was entirely absent from the pinned dependency, and the cost of
+    finding that out was a full render's worth of weight loading. This test
+    would fail against that ordering, because no "[ role ]" line would ever
+    be printed before the early return.
+    """
+    exit_code = harness.main(["--dry-run"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "[ role       ] local-preview ->" in out
