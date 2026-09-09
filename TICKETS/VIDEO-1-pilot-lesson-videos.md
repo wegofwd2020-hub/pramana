@@ -3,7 +3,50 @@
 **Labels:** feature, content, video
 **Refs:** ADR-026 (wegofwd-video integration), US-PLATFORM-0002 (course player),
 US-PLATFORM-0004 (ingestion review queue), `docs/02_resolved_decisions.md`
-**Status:** draft for discussion — nothing decided yet
+**Status:** SOX pilot's code side done (2026-09-09) — see "SOX pilot status"
+below. The remaining frameworks (FCPA, GDPR, HIPAA, ISO 27001, PCI DSS — five
+by this ticket's own "Scope" table, not the four the task brief's wording
+assumed; see the note in "SOX pilot status") are still draft for discussion;
+nothing about their content or population targeting is decided.
+
+## SOX pilot status (2026-09-09)
+
+The two-gate loop this ticket's discussion turned on is built and proven
+end-to-end against a real Postgres:
+`tests/integration/test_sox_video_pilot_e2e.py`. A generated-video draft now
+must clear **both** gates before it can publish — the pre-existing accuracy
+gate on the script (`approve_draft`) and the new fidelity attestation on the
+rendered footage (`attest_draft_video`) — and `publish_draft` refuses an
+approved-but-unattested video with `InvalidStateTransitionError`. Resolved
+decision #274 (`docs/02_resolved_decisions.md` item 5) has been updated to
+record this rather than silently rewritten — see that file for the
+superseded wording kept alongside the new decision.
+
+No new production code was required to close this loop; Tasks 1–6 already
+built the seam, the state machine, and the DB constraints. Open item 6 from
+"Open questions for the discussion" below (does this supersede resolved
+decision #274, and who records that) is answered: yes, and this ticket +
+`docs/02_resolved_decisions.md` are where it's recorded.
+
+**Render numbers — not yet filled in.** The actual SOX-pilot render
+(duration, resolution, wall-clock time, peak memory, cost) has not completed
+as of this writing; a run was in progress on `mambakkam` when this section
+was written. `<FILL IN FROM THE ACTUAL RUN: duration_s, resolution, render
+wall-clock time, peak RSS, provider/cost>`. Do not treat the illustrative
+`docs/local-diffusion-cpu-poc.md` / §2 numbers on this ticket as the pilot's
+own measurement — those describe the local-preview validation path, not the
+pilot's actual render.
+
+**What's left for the other frameworks.** FCPA, GDPR, HIPAA, ISO 27001, and
+PCI DSS (see "Scope" below) inherit the same two-gate model unchanged — no
+new plumbing, no new state-machine work. Each needs only its own content: a
+reviewed-and-cited script for its framework, a rendered asset, and a human to
+run the same `approve_draft` → generate/render → `attest_draft_video` →
+`publish_draft` sequence this pilot proved. (The task brief that drove this
+ticket update said "four" remaining frameworks; this ticket's own "Scope"
+table names five non-SOX stories — FCPA/GDPR/HIPAA/ISO/PCI — so five is what's
+recorded here rather than silently matching a count this document's own table
+doesn't support.)
 
 ## Scope
 

@@ -271,7 +271,14 @@ The following assumptions are baked into this specification. Flag any that are w
 2. **US-only deployment.** No GDPR / CCPA exposure in v1. (Pseudonymization design is still included as forward-protection.)
 3. **English-only content** in v1.
 4. **Desktop browser primary.** Mobile web supported but not mobile-app-native.
-5. **Video content is pre-recorded** and uploaded by content authors. No live-session training in scope.
+5. **Video content is generated, then human-approved before assignment** —
+   superseded 2026-09-09 by the SOX video pilot
+   (`docs/superpowers/specs/2026-09-09-sox-video-pilot-design.md`). This item
+   previously read *"Video content is pre-recorded and uploaded by content
+   authors"*, which stopped being true when generation entered the pipeline.
+   Generated footage is an untrusted draft: it passes the accuracy gate on its
+   script and a separate fidelity attestation on its rendered bytes before it
+   can publish. No live-session training remains in scope.
 6. **Quiz questions are authored manually**, not generated from video transcripts.
 7. **Certificates do not require external notarization** — internal verification code suffices for SOX.
 8. **John Thomas's existing IdP supports SAML or OIDC.** If they're on a legacy auth system, SSO scope expands.
