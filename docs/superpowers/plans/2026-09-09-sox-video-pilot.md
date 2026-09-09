@@ -1084,14 +1084,29 @@ class TestSceneBriefs:
         )
         assert all(sum(s.duration_s for s in b.shots) <= 10 for b in briefs)
 
-    def test_scene_index_is_the_line_position(self) -> None:
+    def test_ordering_comes_from_list_position_not_scene_index(self) -> None:
+        """Each brief holds one shot, so its own scene_index is always 1.
+
+        `build_video_brief` numbers shots within a single call (`i + 1`), and
+        every call here gets exactly one line. Order lives in the returned
+        list, which is what the concat step consumes.
+        """
         briefs = vg.build_scene_briefs(
             clause_title="ICFR", narration_lines=["a", "b", "c"]
         )
-        assert [b.shots[0].scene_index for b in briefs] == [0, 1, 2]
+        assert [b.shots[0].scene_index for b in briefs] == [1, 1, 1]
 
     def test_no_lines_yields_no_briefs(self) -> None:
         assert vg.build_scene_briefs(clause_title="ICFR", narration_lines=[]) == []
+
+    def test_blank_lines_are_skipped_not_fatal(self) -> None:
+        """`build_video_brief` raises on empty narration, so blanks must be
+        filtered here — one stray blank line in a script must not kill the
+        whole composition."""
+        briefs = vg.build_scene_briefs(
+            clause_title="ICFR", narration_lines=["a", "   ", "", "b"]
+        )
+        assert len(briefs) == 2
 ```
 
 Import the module as `vg` if the file does not already; match the file's existing import alias.
@@ -1135,6 +1150,10 @@ def build_scene_briefs(
     Returns:
         One brief per line, in order. Empty input yields an empty list.
     """
+    # build_video_brief raises ValidationError on empty narration, so a blank
+    # line would abort the whole composition rather than being skipped. Filter
+    # first — the same normalisation build_video_brief applies internally.
+    lines = [line.strip() for line in narration_lines if line and line.strip()]
     return [
         build_video_brief(
             clause_title=clause_title,
@@ -1144,11 +1163,11 @@ def build_scene_briefs(
             audio_direction=audio_direction,
             shot_duration_s=shot_duration_s,
         )
-        for line in narration_lines
+        for line in lines
     ]
 ```
 
-If `build_video_brief` sets `scene_index` from the line's position within its own call, every brief will carry `scene_index=0` and the fifth test will fail. In that case pass the index through explicitly — read `build_video_brief`'s body and mirror how it assigns `scene_index`, rather than guessing.
+**Do not try to renumber `scene_index` across briefs.** `build_video_brief` assigns `scene_index=i + 1` within its own call, and each call here receives exactly one line, so every brief's single shot carries `scene_index=1`. That is correct and expected: ordering lives in the returned list, which is what the ffmpeg concat step consumes in order. Renumbering would add a second, redundant source of truth for sequence.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
