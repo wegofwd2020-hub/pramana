@@ -339,7 +339,9 @@ A quiz-only draft carries no video and is unaffected."
 
 **Interfaces:**
 - Consumes: Task 1's field names — `video_asset_hash`, `video_attested_by_user_id`, `video_attested_at` — which the columns must match exactly, plus `video_attestation_text` which exists only on the ORM row.
-- Produces: those four columns on `content_draft`, and three CHECK constraints named `video_attestation_pair`, `video_separation_of_duties`, `video_attestation_needs_asset`.
+- Produces: those four columns on `content_draft`; three CHECK constraints named `video_attestation_pair`, `video_separation_of_duties`, `video_attestation_needs_asset`; and `course_version.transcript` (nullable `text`), consumed by Task 4.
+
+**Also add `transcript` to `course_version` in this same migration.** Narration is out of scope for the pilot, so the words must reach the learner as text or the video is silent and wordless. `CourseVersion` has `video_asset_id` and `min_watch_pct` but nowhere to put the script. One migration, two tables — a second migration for one nullable column would be noise.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -487,7 +489,18 @@ In `pramana/db/models/content.py`, in `ContentDraft` after `attestation_text`:
 
 Match the import style already used in the file for `PG_UUID`, `ForeignKey`, `DateTime` and `Text`; add only what is missing.
 
-Add to `__table_args__`, after the existing `separation_of_duties` CHECK:
+Also add to `CourseVersion` in `pramana/db/models/course.py`, after `min_watch_pct`:
+
+```python
+    transcript: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="The approved narration as text. The pilot renders silent "
+        "footage, so this is how the words reach the learner.",
+    )
+```
+
+Add to `ContentDraft.__table_args__`, after the existing `separation_of_duties` CHECK:
 
 ```python
         # Fidelity evidence must be present together (or absent together).
@@ -556,6 +569,9 @@ _TABLE = "content_draft"
 
 
 def upgrade() -> None:
+    # The learner-facing transcript. Narration is out of scope for the pilot, so
+    # without this the footage reaches a learner silent and wordless.
+    op.add_column("course_version", sa.Column("transcript", sa.Text(), nullable=True))
     op.add_column(_TABLE, sa.Column("video_asset_hash", sa.Text(), nullable=True))
     op.add_column(
         _TABLE,
@@ -601,6 +617,7 @@ def downgrade() -> None:
     op.drop_column(_TABLE, "video_attested_at")
     op.drop_column(_TABLE, "video_attested_by_user_id")
     op.drop_column(_TABLE, "video_asset_hash")
+    op.drop_column("course_version", "transcript")
 ```
 
 Note the asymmetry and do not "fix" it: **model** `CheckConstraint(name=...)` takes the bare name because the metadata naming convention adds the `ck_content_draft_` prefix, while **`op.create_check_constraint`** in the migration takes the fully-prefixed name because Alembic's op does not apply that convention. Writing the prefixed name in the model is the double-prefix bug.
@@ -674,7 +691,7 @@ class TestVideoAttestationService:
                 session,
                 draft_id=draft.id,
                 tenant_id=draft.tenant_id,
-                actor_user_id=PUBLISHER_ID,
+                publisher_user_id=PUBLISHER_ID,
                 now=NOW,
             )
 
@@ -693,7 +710,7 @@ class TestVideoAttestationService:
             session,
             draft_id=draft.id,
             tenant_id=draft.tenant_id,
-            actor_user_id=PUBLISHER_ID,
+            publisher_user_id=PUBLISHER_ID,
             now=NOW,
         )
         assert published.status == ContentDraftStatus.PUBLISHED.value
@@ -843,7 +860,162 @@ publish invariant sees the same video the course version will."
 
 ---
 
-### Task 4: Render composition — one single-shot brief per narration line
+### Task 4: Transcript — carry the approved words to the learner
+
+The pilot renders silent footage, so the script is the only thing that says anything. This task carries it from the approved body onto the immutable version.
+
+**Files:**
+- Modify: `pramana/domain/video_generation.py`
+- Modify: `pramana/services/content_review.py`
+- Modify: `pramana/services/video_generation.py`
+- Test: `tests/test_video_generation.py`, `tests/services/test_content_review.py`
+
+**Interfaces:**
+- Consumes: `course_version.transcript` from Task 2; `MaterializedVideo` (existing).
+- Produces: `MaterializedVideo.transcript: str | None`, populated from `body["video"]["transcript"]`, stamped onto `CourseVersion.transcript` at publish.
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `tests/test_video_generation.py`:
+
+```python
+class TestTranscriptProjection:
+    """Silent footage means the transcript is the only thing that speaks."""
+
+    def test_transcript_is_projected_from_the_body(self) -> None:
+        video = vg.materialize_video(
+            {"video": {"asset_ref": "s3://a.mp4", "min_watch_pct": 80,
+                       "transcript": "Every control has an owner."}}
+        )
+        assert video.transcript == "Every control has an owner."
+
+    def test_a_body_without_a_transcript_projects_none(self) -> None:
+        """Pre-existing drafts have no transcript and must still publish."""
+        video = vg.materialize_video(
+            {"video": {"asset_ref": "s3://a.mp4", "min_watch_pct": 80}}
+        )
+        assert video.transcript is None
+
+    def test_a_blank_transcript_is_normalised_to_none(self) -> None:
+        video = vg.materialize_video(
+            {"video": {"asset_ref": "s3://a.mp4", "min_watch_pct": 0, "transcript": "   "}}
+        )
+        assert video.transcript is None
+
+    def test_a_non_string_transcript_is_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            vg.materialize_video(
+                {"video": {"asset_ref": "s3://a.mp4", "min_watch_pct": 0, "transcript": 42}}
+            )
+```
+
+Append to `tests/services/test_content_review.py`:
+
+```python
+    async def test_publish_stamps_the_transcript_onto_the_version(
+        self, session, seeded_draft
+    ) -> None:
+        """Without this the learner gets silent footage and no words at all."""
+        draft = await _approved_draft_with_video(
+            session, seeded_draft, transcript="Every control has an owner."
+        )
+        await content_review.attest_draft_video(
+            session, draft_id=draft.id, tenant_id=draft.tenant_id,
+            actor_user_id=ATTESTER_ID, video_asset_hash="sha256:bytes",
+            attestation_text="ok", now=NOW,
+        )
+        version = await content_review.publish_draft(
+            session, draft_id=draft.id, tenant_id=draft.tenant_id,
+            publisher_user_id=PUBLISHER_ID, now=NOW,
+        )
+        assert version.transcript == "Every control has an owner."
+```
+
+Extend `_approved_draft_with_video` from Task 3 to take an optional `transcript` keyword and write it into the body's `video` block.
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `~/venvs/pramana/bin/python -m pytest tests/test_video_generation.py::TestTranscriptProjection tests/services/test_content_review.py -v`
+
+Expected: FAIL — `MaterializedVideo` has no attribute `transcript`.
+
+- [ ] **Step 3: Project the transcript**
+
+In `pramana/domain/video_generation.py`, add the field to `MaterializedVideo`:
+
+```python
+    transcript: str | None = None
+```
+
+and in `materialize_video`, before the return, parse it:
+
+```python
+    raw_transcript = video.get("transcript")
+    if raw_transcript is not None and not isinstance(raw_transcript, str):
+        raise ValidationError(
+            "draft body.video.transcript must be a string",
+            context={"field": "body.video.transcript"},
+        )
+    # Blank is the same as absent: a whitespace-only transcript would render as
+    # an empty panel that looks like a bug rather than an intentional silence.
+    transcript = raw_transcript.strip() if raw_transcript else None
+```
+
+Pass `transcript=transcript or None` into the `MaterializedVideo(...)` construction.
+
+- [ ] **Step 4: Stamp it at publish**
+
+In `pramana/services/content_review.py`'s `publish_draft`, wherever the existing code assigns `video_asset_id` and `min_watch_pct` onto the new `CourseVersion` from `video`, add alongside them:
+
+```python
+        transcript=video.transcript,
+```
+
+If those fields are assigned after construction rather than as constructor arguments, follow that style instead — read the surrounding lines rather than assuming.
+
+- [ ] **Step 5: Write the transcript when attaching the video**
+
+In `pramana/services/video_generation.py`'s `attach_course_video`, where the body's `video` block is built, include the narration:
+
+```python
+        # The words that were approved. The pilot renders silent footage, so
+        # this is the learner's only access to what the lesson actually says.
+        "transcript": "\n".join(lines),
+```
+
+- [ ] **Step 6: Run the tests to verify they pass**
+
+Run: `~/venvs/pramana/bin/python -m pytest tests/test_video_generation.py tests/services/test_content_review.py -v`
+
+Expected: PASS, including pre-existing tests. A pre-existing test asserting the exact shape of the attached `video` block will now see an extra key — update its expectation; do not drop the transcript.
+
+- [ ] **Step 7: Lint, type-check and commit**
+
+```bash
+~/venvs/pramana/bin/ruff format pramana tests scripts
+~/venvs/pramana/bin/ruff check pramana tests scripts
+~/venvs/pramana/bin/mypy pramana scripts
+git add pramana/domain/video_generation.py pramana/services/content_review.py pramana/services/video_generation.py tests/test_video_generation.py tests/services/test_content_review.py
+git commit -m "feat(video): carry the approved narration to the learner as text
+
+The pilot renders silent footage, so without this a learner receives moving
+pictures and no words. CourseVersion had video_asset_id and min_watch_pct and
+nowhere to put the script.
+
+The transcript is the approved narration verbatim, projected from the draft
+body at publish onto the immutable version, so it is pinned to the same
+content version the certificate names. Blank normalises to absent: a
+whitespace-only transcript renders as an empty panel that reads as a bug.
+
+The alternative was burning the words into the footage as on-screen text.
+The negative prompt deliberately suppresses that, because the model
+hallucinates text, and catching hallucinated on-screen text is part of what
+the fidelity gate is for."
+```
+
+---
+
+### Task 5: Render composition — one single-shot brief per narration line
 
 **Files:**
 - Modify: `pramana/domain/video_generation.py`
@@ -987,7 +1159,7 @@ the ceiling is higher."
 
 ---
 
-### Task 5: Render the pilot segment and record the numbers
+### Task 6: Render the pilot segment and record the numbers
 
 This task produces an artefact, not code. It is the one manual step, for the same reason `wegofwd-video`'s own render is manual: CI installs `.[dev]` only, so it has no torch and no weights and cannot render.
 
@@ -997,8 +1169,8 @@ This task produces an artefact, not code. It is the one manual step, for the sam
 - Test: `tests/test_render_sox_pilot.py`
 
 **Interfaces:**
-- Consumes: `build_scene_briefs` from Task 4.
-- Produces: a concatenated `.mp4`, its SHA-256, and a JSON run report. The hash is what Task 6 attests to.
+- Consumes: `build_scene_briefs` from Task 5.
+- Produces: a concatenated `.mp4`, its SHA-256, and a JSON run report. The hash is what Task 7 attests to.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1266,7 +1438,7 @@ composition and the refusal, which is the part that can be checked for free."
 
 ---
 
-### Task 6: Close the loop end-to-end, and supersede resolved decision #274
+### Task 7: Close the loop end-to-end, and supersede resolved decision #274
 
 **Files:**
 - Create: `tests/integration/test_sox_video_pilot_e2e.py`
@@ -1274,7 +1446,7 @@ composition and the refusal, which is the part that can be checked for free."
 - Modify: `TICKETS/VIDEO-1-pilot-lesson-videos.md`
 
 **Interfaces:**
-- Consumes: everything from Tasks 1–5.
+- Consumes: everything from Tasks 1–6.
 - Produces: no new code interfaces; a passing end-to-end proof and truthful documents.
 
 - [ ] **Step 1: Write the failing test**
@@ -1328,7 +1500,7 @@ class TestSoxVideoPilotEndToEnd:
         with pytest.raises(InvalidStateTransitionError):
             await content_review.publish_draft(
                 db, draft_id=draft.id, tenant_id=draft.tenant_id,
-                actor_user_id=APPROVER_ID, now=NOW,
+                publisher_user_id=APPROVER_ID, now=NOW,
             )
         await db.rollback()
         refreshed = await db.get(ContentDraft, draft.id)
@@ -1347,7 +1519,7 @@ class TestSoxVideoPilotEndToEnd:
         )
         published = await content_review.publish_draft(
             db, draft_id=draft.id, tenant_id=draft.tenant_id,
-            actor_user_id=APPROVER_ID, now=NOW,
+            publisher_user_id=APPROVER_ID, now=NOW,
         )
         await db.commit()
         assert published.status == ContentDraftStatus.PUBLISHED.value
@@ -1364,7 +1536,7 @@ class TestSoxVideoPilotEndToEnd:
         )
         published = await content_review.publish_draft(
             db, draft_id=draft.id, tenant_id=draft.tenant_id,
-            actor_user_id=APPROVER_ID, now=NOW,
+            publisher_user_id=APPROVER_ID, now=NOW,
         )
         await db.commit()
         version = await db.get(CourseVersion, published.published_course_version_id)
@@ -1462,28 +1634,18 @@ docker stop pramana-scratch-pg
 
 ---
 
-## Open item found during self-review — resolve before Task 6
+## Resolved during self-review
 
-The spec says narration is out of scope and **"the approved script is shown as
-text"**. Nothing in this plan implements that, because there is nowhere to put
-it: `CourseVersion` carries `video_asset_id` and `min_watch_pct` but no
-transcript or script field, and the learner payload does not surface the draft
-body. So a silent video would reach the learner with no words at all, which is
-not a lesson.
+The spec says narration is out of scope and *"the approved script is shown as
+text"*, but nothing could satisfy that: `CourseVersion` carries `video_asset_id`
+and `min_watch_pct` and no transcript field, so a silent video would have reached
+a learner with no words at all.
 
-Three ways out, none of them large, and the choice belongs to whoever executes:
-
-1. **Add a `transcript` column to `CourseVersion`,** materialised from the
-   approved body alongside the video block, and surface it in the learner
-   payload. Most faithful to the spec, one more migration.
-2. **Render the narration as on-screen text in the video.** Tempting and wrong:
-   the negative prompt explicitly suppresses on-screen text because the model
-   hallucinates it, and the fidelity gate exists partly to catch exactly that.
-3. **Narrow the spec** to say the pilot's segment is silent B-roll accompanying
-   the existing course text, and drop the claim that the script is displayed.
-
-Option 1 is the honest reading of the spec; option 3 is the honest reading of
-what the pilot is for. Either is defensible — silently shipping neither is not.
+**Resolved by adding `course_version.transcript`** (Task 2's migration) and
+materialising it on publish (Task 4). The rejected alternative was burning the
+narration into the footage as on-screen text — which the negative prompt
+deliberately suppresses because the model hallucinates text, and which gate 2
+exists partly to catch.
 
 ## Notes for the executor
 
