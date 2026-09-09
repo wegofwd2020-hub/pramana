@@ -101,6 +101,51 @@ def build_video_brief(
     )
 
 
+#: One scene per narration line at this length keeps a five-line segment inside
+#: the local-preview role's ``max_duration_s = 10`` and each render near the
+#: measured 1 080 latent tokens. The module default of 6.0 s targets the Veo
+#: path, where the ceiling is higher.
+_LOCAL_SHOT_DURATION_S = 2.0
+
+
+def build_scene_briefs(
+    *,
+    clause_title: str,
+    narration_lines: Sequence[str],
+    shot_duration_s: float = _LOCAL_SHOT_DURATION_S,
+    style: str = _DEFAULT_STYLE,
+    negative: str = _DEFAULT_NEGATIVE,
+    audio_direction: str = _DEFAULT_AUDIO,
+) -> list[VideoBrief]:
+    """Split a lesson into one single-shot brief per narration line.
+
+    The local provider joins a multi-shot brief's shots into a single prompt and
+    sums their durations for one render, so a five-shot brief produces one clip
+    rather than five scenes. Issuing one brief per line and concatenating the
+    results is what actually yields scene cuts — and it keeps each render's
+    latent-token count, and therefore its peak memory, near the measured figure
+    instead of multiplying it by the scene count.
+
+    Returns:
+        One brief per line, in order. Empty input yields an empty list.
+    """
+    # build_video_brief raises ValidationError on empty narration, so a blank
+    # line would abort the whole composition rather than being skipped. Filter
+    # first — the same normalisation build_video_brief applies internally.
+    lines = [line.strip() for line in narration_lines if line and line.strip()]
+    return [
+        build_video_brief(
+            clause_title=clause_title,
+            narration_lines=[line],
+            style=style,
+            negative=negative,
+            audio_direction=audio_direction,
+            shot_duration_s=shot_duration_s,
+        )
+        for line in lines
+    ]
+
+
 def video_to_body_patch(
     result: VideoResult,
     *,
