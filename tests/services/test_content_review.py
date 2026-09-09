@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -58,7 +59,9 @@ def make_draft(status: str = "received", **kw) -> ContentDraft:
     return d
 
 
-def _approved_draft_with_video(*, generated_by_user_id: uuid.UUID | None = None) -> ContentDraft:
+def _approved_draft_with_video(
+    *, generated_by_user_id: uuid.UUID | None = None, transcript: str | None = None
+) -> ContentDraft:
     """Build an APPROVED draft carrying a video block that has not yet been attested.
 
     Mirrors what ``submit_for_review`` + ``approve_draft`` would leave behind;
@@ -66,6 +69,9 @@ def _approved_draft_with_video(*, generated_by_user_id: uuid.UUID | None = None)
     existing pattern (see ``TestPublish``) rather than driving a mocked session
     through both prior transitions.
     """
+    video: dict[str, Any] = {"asset_ref": "video/course/draft.mp4", "min_watch_pct": 0}
+    if transcript is not None:
+        video["transcript"] = transcript
     return make_draft(
         status="approved",
         generated_by_user_id=generated_by_user_id,
@@ -78,7 +84,7 @@ def _approved_draft_with_video(*, generated_by_user_id: uuid.UUID | None = None)
                 "pass_threshold_pct": 80,
                 "questions": [{"prompt": "Q1?", "options": ["a", "b", "c"], "answer_index": 0}],
             },
-            "video": {"asset_ref": "video/course/draft.mp4", "min_watch_pct": 0},
+            "video": video,
         },
     )
 
@@ -367,6 +373,35 @@ class TestVideoAttestationService:
             now=NOW,
         )
         assert draft.status == ContentDraftStatus.PUBLISHED.value
+
+    async def test_publish_stamps_the_transcript_onto_the_version(self) -> None:
+        """Without this the learner gets silent footage and no words at all."""
+        draft = _approved_draft_with_video(transcript="Every control has an owner.")
+        attest_session = fake_session(get=draft)
+        await cr.attest_draft_video(
+            attest_session,
+            draft_id=draft.id,
+            tenant_id=TENANT,
+            actor_user_id=uuid.uuid4(),
+            video_asset_hash="sha256:bytes",
+            attestation_text="ok",
+            now=NOW,
+        )
+
+        # Same execute shape as test_attesting_then_publishing_succeeds: max-version,
+        # deactivate, course-threshold, audit prev-hash, advance-request lookup.
+        publish_session = fake_session(
+            get=draft,
+            execute=[_result(scalar=0), _result(), _result(), _result(), _result()],
+        )
+        version = await cr.publish_draft(
+            publish_session,
+            draft_id=draft.id,
+            tenant_id=TENANT,
+            publisher_user_id=uuid.uuid4(),
+            now=NOW,
+        )
+        assert version.transcript == "Every control has an owner."
 
     async def test_attestation_writes_an_audit_entry(self) -> None:
         draft = _approved_draft_with_video()

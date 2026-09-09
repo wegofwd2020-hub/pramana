@@ -157,3 +157,40 @@ def test_materialize_video_malformed_raises(video):
 def test_generator_constants_stable():
     assert GEN_ENGINE == "pramana"
     assert VIDEO_PROMPT_VERSION.startswith("pramana-video")
+
+
+# ── transcript projection ──────────────────────────────────────────────────────
+class TestTranscriptProjection:
+    """Silent footage means the transcript is the only thing that speaks."""
+
+    def test_transcript_is_projected_from_the_body(self) -> None:
+        video = materialize_video(
+            {
+                "video": {
+                    "asset_ref": "s3://a.mp4",
+                    "min_watch_pct": 80,
+                    "transcript": "Every control has an owner.",
+                }
+            }
+        )
+        assert video is not None
+        assert video.transcript == "Every control has an owner."
+
+    def test_a_body_without_a_transcript_projects_none(self) -> None:
+        """Pre-existing drafts have no transcript and must still publish."""
+        video = materialize_video({"video": {"asset_ref": "s3://a.mp4", "min_watch_pct": 80}})
+        assert video is not None
+        assert video.transcript is None
+
+    def test_a_blank_transcript_is_normalised_to_none(self) -> None:
+        video = materialize_video(
+            {"video": {"asset_ref": "s3://a.mp4", "min_watch_pct": 0, "transcript": "   "}}
+        )
+        assert video is not None
+        assert video.transcript is None
+
+    def test_a_non_string_transcript_is_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            materialize_video(
+                {"video": {"asset_ref": "s3://a.mp4", "min_watch_pct": 0, "transcript": 42}}
+            )

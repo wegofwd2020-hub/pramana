@@ -397,6 +397,7 @@ async def publish_draft(
         is_material_change=is_material_change,
         video_asset_id=video.asset_ref if video else None,
         min_watch_pct=video.min_watch_pct if video else 0,
+        transcript=video.transcript if video else None,
     )
     session.add(course_version)
     for spec in quiz.questions:
