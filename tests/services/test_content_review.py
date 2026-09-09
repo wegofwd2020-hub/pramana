@@ -8,9 +8,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from pramana.db.models.audit import AuditLog
 from pramana.db.models.content import ContentDraft
 from pramana.db.models.course import AnswerOption, Question
-from pramana.domain.enums import ContentDraftStatus
+from pramana.domain.enums import ContentDraftStatus, ContentEvent
 from pramana.exceptions import (
     InvalidStateTransitionError,
     NotFoundError,
@@ -55,6 +56,31 @@ def make_draft(status: str = "received", **kw) -> ContentDraft:
     d.review_notes = None
     d.attestation_text = None
     return d
+
+
+def _approved_draft_with_video(*, generated_by_user_id: uuid.UUID | None = None) -> ContentDraft:
+    """Build an APPROVED draft carrying a video block that has not yet been attested.
+
+    Mirrors what ``submit_for_review`` + ``approve_draft`` would leave behind;
+    built directly at the target state via ``make_draft``, matching this file's
+    existing pattern (see ``TestPublish``) rather than driving a mocked session
+    through both prior transitions.
+    """
+    return make_draft(
+        status="approved",
+        generated_by_user_id=generated_by_user_id,
+        approved_by_user_id=uuid.uuid4(),
+        approved_at=NOW,
+        content_hash="sha256:" + "a" * 64,
+        body={
+            "modules": [{"heading": "x"}],
+            "quiz": {
+                "pass_threshold_pct": 80,
+                "questions": [{"prompt": "Q1?", "options": ["a", "b", "c"], "answer_index": 0}],
+            },
+            "video": {"asset_ref": "video/course/draft.mp4", "min_watch_pct": 0},
+        },
+    )
 
 
 def _result(*, scalar=None, rows=()) -> MagicMock:
@@ -290,6 +316,124 @@ class TestPublish:
                 now=NOW,
             )
         session.add.assert_not_called()
+
+
+# --- video fidelity attestation ------------------------------------------
+class TestVideoAttestationService:
+    async def test_publish_refuses_an_unattested_video(self) -> None:
+        """The service must not be able to route around the domain invariant."""
+        draft = _approved_draft_with_video()
+        session = fake_session(get=draft)
+        with pytest.raises(InvalidStateTransitionError):
+            await cr.publish_draft(
+                session,
+                draft_id=draft.id,
+                tenant_id=TENANT,
+                publisher_user_id=uuid.uuid4(),
+                now=NOW,
+            )
+        session.add.assert_not_called()
+
+    async def test_attesting_then_publishing_succeeds(self) -> None:
+        draft = _approved_draft_with_video()
+        attester = uuid.uuid4()
+        attest_session = fake_session(get=draft)
+        await cr.attest_draft_video(
+            attest_session,
+            draft_id=draft.id,
+            tenant_id=TENANT,
+            actor_user_id=attester,
+            video_asset_hash="sha256:bytes",
+            attestation_text="Footage matches the approved script.",
+            now=NOW,
+        )
+        assert draft.video_attested_by_user_id == attester
+        assert draft.video_attested_at == NOW
+        assert draft.video_asset_hash == "sha256:bytes"
+        assert draft.video_attestation_text == "Footage matches the approved script."
+
+        # execute: max-version, deactivate, course-threshold, audit prev-hash,
+        # advance-request lookup (no linked request → None) — same shape as
+        # TestPublish's video-free publish tests.
+        publish_session = fake_session(
+            get=draft,
+            execute=[_result(scalar=0), _result(), _result(), _result(), _result()],
+        )
+        await cr.publish_draft(
+            publish_session,
+            draft_id=draft.id,
+            tenant_id=TENANT,
+            publisher_user_id=uuid.uuid4(),
+            now=NOW,
+        )
+        assert draft.status == ContentDraftStatus.PUBLISHED.value
+
+    async def test_attestation_writes_an_audit_entry(self) -> None:
+        draft = _approved_draft_with_video()
+        session = fake_session(get=draft)
+        await cr.attest_draft_video(
+            session,
+            draft_id=draft.id,
+            tenant_id=TENANT,
+            actor_user_id=uuid.uuid4(),
+            video_asset_hash="sha256:bytes",
+            attestation_text="Footage matches the approved script.",
+            now=NOW,
+        )
+        added = [c.args[0] for c in session.add.call_args_list]
+        events = [a.event_type for a in added if isinstance(a, AuditLog)]
+        assert f"content_draft.{ContentEvent.ATTEST_VIDEO.value}" in events
+
+    async def test_attest_separation_of_duties(self) -> None:
+        generator = uuid.uuid4()
+        draft = _approved_draft_with_video(generated_by_user_id=generator)
+        session = fake_session(get=draft)
+        with pytest.raises(SeparationOfDutiesError):
+            await cr.attest_draft_video(
+                session,
+                draft_id=draft.id,
+                tenant_id=TENANT,
+                actor_user_id=generator,
+                video_asset_hash="sha256:bytes",
+                attestation_text="x",
+                now=NOW,
+            )
+
+    async def test_attest_wrong_tenant_not_found(self) -> None:
+        draft = _approved_draft_with_video()
+        session = fake_session(get=draft)
+        with pytest.raises(NotFoundError):
+            await cr.attest_draft_video(
+                session,
+                draft_id=draft.id,
+                tenant_id=uuid.uuid4(),
+                actor_user_id=uuid.uuid4(),
+                video_asset_hash="sha256:bytes",
+                attestation_text="x",
+                now=NOW,
+            )
+
+    async def test_attest_requires_approved_status(self) -> None:
+        # Not-yet-approved, so no approval fields — those would fail the
+        # snapshot's own consistency check before attest_video ever runs.
+        draft = make_draft(
+            status="in_review",
+            body={
+                "modules": [{"heading": "x"}],
+                "video": {"asset_ref": "video/course/draft.mp4", "min_watch_pct": 0},
+            },
+        )
+        session = fake_session(get=draft)
+        with pytest.raises(InvalidStateTransitionError):
+            await cr.attest_draft_video(
+                session,
+                draft_id=draft.id,
+                tenant_id=TENANT,
+                actor_user_id=uuid.uuid4(),
+                video_asset_hash="sha256:bytes",
+                attestation_text="x",
+                now=NOW,
+            )
 
 
 # --- list ----------------------------------------------------------------

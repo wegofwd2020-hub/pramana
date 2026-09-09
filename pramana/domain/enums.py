@@ -207,6 +207,10 @@ class ContentEvent(StrEnum):
     APPROVE = auto()
     REJECT = auto()
     PUBLISH = auto()
+    # The second gate: someone watched the rendered footage and attested that it
+    # depicts the approved script and nothing misleading. Distinct from APPROVE,
+    # which attests the script's accuracy and its section citations.
+    ATTEST_VIDEO = auto()
 
 
 class ContentRequestEvent(StrEnum):
