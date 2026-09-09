@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -26,10 +27,11 @@ from typing import Any
 
 from pramana.domain.video_generation import build_scene_briefs
 
-#: The local-preview role's ceiling on a single scene's render duration. It is
-#: reused here as the whole pilot segment's total-duration budget: catching a
-#: rejected geometry at plan time costs a second, catching it an hour into a
-#: render costs an hour.
+#: The local-preview role's ceiling on a single scene's render duration — the
+#: provider's own rule, checked directly per scene in ``build_plan``. The
+#: same number is also reused, deliberately, as this harness's budget for the
+#: whole pilot segment's total duration; that reuse is a cost-guard choice,
+#: not something the provider itself enforces.
 MAX_DURATION_S = 10.0
 
 #: Five lines at the 2.0 s default totals exactly 10.0 s — inside the cap,
@@ -63,27 +65,57 @@ def build_plan(
     clause_title: str,
     shot_duration_s: float = 2.0,
 ) -> Plan:
-    """Compose one single-shot brief per line, refusing an over-long segment.
+    """Compose one single-shot brief per line, enforcing two separate limits.
 
-    The local-preview role's capability check rejects a single render only
-    when its duration exceeds ``max_duration_s`` — so the whole pilot
-    segment (every scene's shot summed) is checked against that same ceiling
-    here, before anything is loaded. Discovering a rejected geometry at plan
-    time costs a second; discovering it an hour into a render costs an hour.
+    Each brief is one render, so the local-preview role's own capability check
+    — which rejects a single render's ``duration_s`` only when it exceeds
+    ``max_duration_s`` — is checked here directly, per scene, rather than left
+    to fall out of the segment arithmetic below.
+
+    Separately, this harness costs the *whole pilot segment* against that
+    same ceiling as a deliberate, reused budget: it is not a rule the provider
+    itself enforces (the provider never sees the segment, only one render at a
+    time), but it keeps the pilot short and catches a runaway line count or
+    per-line duration before anything loads.
+
+    Discovering either kind of rejection at plan time costs a second;
+    discovering it an hour into a render costs an hour.
 
     Raises:
-        ValueError: the segment's total duration exceeds ``MAX_DURATION_S``.
+        ValueError: a single scene's render would exceed ``MAX_DURATION_S``
+            (the provider's own rule), or the segment's total duration
+            exceeds the harness's budget (derived from that same ceiling).
     """
     briefs = build_scene_briefs(
         clause_title=clause_title,
         narration_lines=narration_lines,
         shot_duration_s=shot_duration_s,
     )
+
+    # The provider's real rule, checked explicitly rather than left to fall out
+    # of the segment arithmetic below. Each brief is one render, so a shot
+    # longer than the ceiling is a render the capability check will refuse
+    # outright — independent of how many other scenes exist.
+    for i, brief in enumerate(briefs):
+        render_s = sum(s.duration_s for s in brief.shots)
+        if render_s > MAX_DURATION_S:
+            raise ValueError(
+                f"scene {i} is {render_s}s, over the local-preview role's "
+                f"max_duration_s={MAX_DURATION_S}; the provider would refuse this render"
+            )
+
+    # The harness's own cost guard: a budget on the concatenated segment,
+    # deliberately reusing the provider's per-render ceiling as its value.
+    # This is NOT a rule the provider enforces (it never sees the segment),
+    # so the message must not claim rejection — only that this pilot's cost
+    # budget is exceeded.
     total = sum(s.duration_s for b in briefs for s in b.shots)
     if total > MAX_DURATION_S:
         raise ValueError(
-            f"segment is {total}s but the local-preview role declares "
-            f"max_duration_s={MAX_DURATION_S}; it would be refused before rendering"
+            f"segment totals {total}s, over the {MAX_DURATION_S}s budget this pilot "
+            f"was costed against. The provider's own max_duration_s applies per render, "
+            f"not per segment — this is the harness's cost guard, deliberately reusing "
+            f"the same ceiling."
         )
     return Plan(briefs=briefs, clause_title=clause_title, shot_duration_s=shot_duration_s)
 
@@ -99,23 +131,26 @@ def concat(clips: list[Path], out: Path) -> None:
         for clip in clips:
             fh.write(f"file '{clip.resolve()}'\n")
         listing = fh.name
-    subprocess.run(  # noqa: S603 - fixed argv, no shell, no untrusted input
-        [  # noqa: S607 - "ffmpeg" is resolved via PATH deliberately, not user input
-            "ffmpeg",
-            "-y",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            listing,
-            "-c",
-            "copy",
-            str(out),
-        ],
-        check=True,
-        capture_output=True,
-    )
+    try:
+        subprocess.run(  # noqa: S603 - fixed argv, no shell, no untrusted input
+            [  # noqa: S607 - "ffmpeg" is resolved via PATH deliberately, not user input
+                "ffmpeg",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                listing,
+                "-c",
+                "copy",
+                str(out),
+            ],
+            check=True,
+            capture_output=True,
+        )
+    finally:
+        os.unlink(listing)
 
 
 def main(argv: list[str] | None = None) -> int:
