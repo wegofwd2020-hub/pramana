@@ -1538,13 +1538,15 @@ ASSET_HASH = "sha256:9f2c0b1e"
 async def _approved_video_draft(db, *, generator, approver, now):
     """A draft carrying footage, script-approved but not yet attested."""
     draft = await _seed_draft(db, body=VIDEO_BODY, generated_by_user_id=generator)
-    await content_review.submit_for_review_draft(
+    await content_review.submit_for_review(
         db, draft_id=draft.id, tenant_id=draft.tenant_id,
         actor_user_id=generator, now=now,
     )
     await content_review.approve_draft(
         db, draft_id=draft.id, tenant_id=draft.tenant_id,
-        actor_user_id=approver, now=now,
+        approver_user_id=approver,
+        attestation_text="Claims verified against the cited sections.",
+        now=now,
     )
     await db.commit()
     return draft
@@ -1631,7 +1633,19 @@ class TestSoxVideoPilotEndToEnd:
 
 Write `_seed_draft` as a local helper that inserts a `Tenant`, a `Course` and a `ContentDraft` with the given body, mirroring `seed_course` in `tests/integration/conftest.py`. Note `content_draft.course_id` is NOT NULL with an FK to `course`, and the users table is `user_account`, not `user`.
 
-**`publish_draft` returns a `CourseVersion`, not the draft** — assert the draft reached `PUBLISHED` by re-reading it, as the tests above do. Check `content_review`'s real function names before writing: this plan assumes `submit_for_review_draft`, `approve_draft` and `publish_draft`; if the module names them differently, follow the module. Read `tests/integration/test_consumer_end_to_end.py` first: it already does an assign-through-completion walk and is the closest existing model for the fixtures and imports.
+**The real `content_review` signatures, verified — use these, do not guess:**
+
+| function | key parameters |
+|---|---|
+| `submit_for_review` | `draft_id`, `tenant_id`, `actor_user_id`, `now` → `ContentDraft` |
+| `approve_draft` | `draft_id`, `tenant_id`, **`approver_user_id`**, **`attestation_text`** (required), `now` → `ContentDraft` |
+| `attest_draft_video` | `draft_id`, `tenant_id`, `actor_user_id`, `video_asset_hash`, `attestation_text`, `now` → `ContentDraft` |
+| `publish_draft` | `draft_id`, `tenant_id`, **`publisher_user_id`**, `now` → **`CourseVersion`** |
+
+Note the three traps: the submit function is `submit_for_review`, not
+`submit_for_review_draft`; `approve_draft` takes `approver_user_id` and
+*requires* `attestation_text`; and `publish_draft` returns a `CourseVersion`, so
+assert the draft reached `PUBLISHED` by re-reading it, as the tests above do. Read `tests/integration/test_consumer_end_to_end.py` first: it already does an assign-through-completion walk and is the closest existing model for the fixtures and imports.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
