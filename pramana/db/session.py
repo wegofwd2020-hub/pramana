@@ -13,10 +13,12 @@ database.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import lru_cache
 
+import structlog
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -26,6 +28,14 @@ from sqlalchemy.ext.asyncio import (
 
 from pramana.config import get_settings
 from pramana.exceptions import DatabaseError, PramanaError
+
+logger = structlog.get_logger(__name__)
+
+#: What a caller is told when the database fails in a way we did not anticipate.
+#: Deliberately says nothing about the statement, the data or the schema — the
+#: detail goes to the log under the incident id returned alongside it.
+_OPAQUE_DB_FAILURE = "A database operation failed."
+_OPAQUE_ENGINE_FAILURE = "The database connection is not configured correctly."
 
 
 @lru_cache(maxsize=1)
@@ -48,10 +58,16 @@ def get_engine() -> AsyncEngine:
             future=True,
         )
     except Exception as exc:
-        raise DatabaseError(
-            f"Failed to construct async engine: {exc}",
-            context={"database_url": settings.database_url},
-        ) from exc
+        # settings.database_url is a DSN with a password in it. It used to go
+        # into context, and context is rendered into the HTTP response body.
+        incident_id = uuid.uuid4()
+        logger.error(
+            "engine_construction_failed",
+            incident_id=str(incident_id),
+            detail=str(exc),
+            exc_info=True,
+        )
+        raise DatabaseError(_OPAQUE_ENGINE_FAILURE, incident_id=incident_id) from exc
 
 
 @lru_cache(maxsize=1)
@@ -95,6 +111,16 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
         raise
     except Exception as exc:
         await session.rollback()
-        raise DatabaseError(f"Database operation failed: {exc}") from exc
+        # SQLAlchemy's str() on a DBAPIError carries "[SQL: ...]" and
+        # "[parameters: (...)]" — the statement and every bound value, which is
+        # PII on most of our tables. Log it, do not return it.
+        incident_id = uuid.uuid4()
+        logger.error(
+            "database_operation_failed",
+            incident_id=str(incident_id),
+            detail=str(exc),
+            exc_info=True,
+        )
+        raise DatabaseError(_OPAQUE_DB_FAILURE, incident_id=incident_id) from exc
     finally:
         await session.close()

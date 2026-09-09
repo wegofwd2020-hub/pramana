@@ -7,6 +7,8 @@ the app via :func:`register_exception_handlers`.
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
@@ -48,16 +50,17 @@ def register_exception_handlers(app: FastAPI) -> None:
     """Install the single handler that renders any :class:`PramanaError`."""
 
     async def handle_pramana_error(_request: Request, exc: PramanaError) -> JSONResponse:
-        return JSONResponse(
-            status_code=_status_for(exc),
-            content={
-                "error": {
-                    "code": exc.code,
-                    "message": exc.message,
-                    "context": exc.context,
-                }
-            },
-        )
+        body: dict[str, Any] = {
+            "code": exc.code,
+            "message": exc.message,
+            "context": exc.context,
+        }
+        # Present only when detail was withheld, so a caller who has one knows
+        # there is more to ask about and a caller who does not is not sent
+        # looking for a log line that says nothing.
+        if exc.incident_id is not None:
+            body["incident_id"] = str(exc.incident_id)
+        return JSONResponse(status_code=_status_for(exc), content={"error": body})
 
     # FastAPI dispatches on the exception class and its subclasses.
     app.add_exception_handler(PramanaError, handle_pramana_error)  # type: ignore[arg-type]

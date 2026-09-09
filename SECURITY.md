@@ -31,7 +31,8 @@
 - Admin and auditor actions are logged.
 
 **Data protection**
-- Encryption in transit (TLS) and at rest.
+- Encryption in transit (TLS) — **verified 2026-09-09**: TLS 1.2/1.3 only (1.0/1.1 rejected), plain HTTP 301-redirects, HSTS `max-age=31536000; includeSubDomains`, and neither the app nor Postgres is reachable except through nginx.
+- Encryption at rest — **NOT IMPLEMENTED, verified 2026-09-09.** The Postgres volume lives on a plain ext4 partition with no dm-crypt or LUKS, so the hash-chained `audit_log` is stored in cleartext. The chain proves rows were not *altered*; it does not stop them being *read* from a snapshot, copied image or recovered disk. Options and their trade-offs are recorded in `TICKETS/PR-4-injection-safe-secrets-encryption.md`; choosing one is a deployment decision.
 - PII minimized to what compliance reporting requires.
 - Tenant/data isolation enforced at the query layer (row scoping).
 
@@ -68,9 +69,9 @@
    `0009` does not cover this — it revokes from `APP_DB_ROLE`, which is unset everywhere, and an owner keeps its privileges regardless. `0011` adds `BEFORE TRUNCATE ... FOR EACH STATEMENT` triggers on `audit_log` and `audit_archive_segment`, which fire for **every** role including the owner, so the control holds in the single-role topology that is actually running. It does not replace the two-role split — a superuser can still drop the trigger, which is exactly what the app role must not be able to do.
 
 **Application security**
-- Input validation; parameterized queries only (no string-built SQL) to prevent injection.
-- Explicit exception handling; never leak stack traces or secrets in errors (matches WeGoFwd coding standards).
-- Secrets from a secret manager / env, never in source.
+- Input validation; parameterized queries only (no string-built SQL) to prevent injection. **Enforced**, not merely observed: `tests/test_no_string_built_sql.py` walks `pramana/`, `scripts/` and `alembic/` with `ast` and fails on SQL assembled by f-string, `+`, `%` or `.format()`. The allow-list holds only migrations interpolating *identifiers*, which `GRANT`/`DROP`/`CREATE TRIGGER` cannot bind as parameters; all but one interpolate a module constant, and the exception — `APP_DB_ROLE` in `0009` — is refused unless it matches `^[A-Za-z_][A-Za-z0-9_]*$` (`tests/test_migration_identifier_guard.py`). `tests/integration/test_injection_safety.py` drives hostile payloads through a real Postgres.
+- Explicit exception handling; never leak stack traces or secrets in errors (matches WeGoFwd coding standards). **This was violated and is now fixed.** `api/errors.py` renders `message` and `context` verbatim, which is right for text we author and was wrong for text the driver authored: `session_scope` interpolated SQLAlchemy's error — carrying `[SQL: ...]` and `[parameters: (...)]`, so PII — into the message, and `get_engine` put the DSN, password included, into `context`. Unexpected database failures now return a fixed message plus an `incident_id`; the detail goes to the log under that id. **Anything placed in `message` or `context` is rendered to HTTP clients — treat both as public.**
+- Secrets from a secret manager / env, never in source. Enforced by `tests/test_secret_hygiene.py`: credential-shaped settings must be `SecretStr`, `SECRET_KEY` must have no default, and secret values must not survive `repr(Settings)`. One known gap is recorded there as a strict `xfail` — `database_url` is a plain `str`, so its password survives `repr()`; nothing renders settings today, and the path that put the DSN into a response body is closed.
 
 ## 3a. Wiring an identity provider (OIDC)
 

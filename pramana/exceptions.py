@@ -29,6 +29,7 @@ Hierarchy::
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 
@@ -43,14 +44,27 @@ class PramanaError(Exception):
         code: Stable machine-readable error code.
         message: Human-readable description.
         context: Optional structured context for logging and observability.
+        incident_id: Set when detail was deliberately withheld from the caller.
+            The same id labels the log record holding what was withheld, so a
+            user can report "I got a 502, id abc" and support can find it.
+            Both :attr:`message` and :attr:`context` are rendered to HTTP
+            clients, so neither may carry driver text, a DSN or anything else
+            the caller is not entitled to read.
     """
 
     code: str = "pramana_error"
 
-    def __init__(self, message: str, *, context: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        context: dict[str, Any] | None = None,
+        incident_id: uuid.UUID | None = None,
+    ) -> None:
         super().__init__(message)
         self.message = message
         self.context: dict[str, Any] = context or {}
+        self.incident_id = incident_id
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(code={self.code!r}, message={self.message!r})"
