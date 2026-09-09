@@ -142,6 +142,24 @@ class ContentDraft(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
         comment="Hash of the exact approved content body; set on approval.",
     )
 
+    # ---- Fidelity attestation over the rendered video (distinct from approval)
+    # Approval above freezes the *body*; these freeze the rendered *bytes* and
+    # record who watched them. Two hashes over two different artefacts.
+    video_asset_hash: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Hash of the exact rendered bytes the attester watched.",
+    )
+    video_attested_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("user_account.user_id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    video_attested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    video_attestation_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # ── Published output ───────────────────────────────────────────────────────
     published_course_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -163,6 +181,26 @@ class ContentDraft(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
             "OR generated_by_user_id IS NULL "
             "OR approved_by_user_id <> generated_by_user_id",
             name="separation_of_duties",
+        ),
+        # Fidelity evidence must be present together (or absent together).
+        CheckConstraint(
+            "(video_attested_by_user_id IS NULL) = (video_attested_at IS NULL)",
+            name="video_attestation_pair",
+        ),
+        # Separation of duties, mirroring the script gate — including the
+        # null-generator escape, without which a system-seeded draft could
+        # never be attested at all.
+        CheckConstraint(
+            "video_attested_by_user_id IS NULL "
+            "OR generated_by_user_id IS NULL "
+            "OR video_attested_by_user_id <> generated_by_user_id",
+            name="video_separation_of_duties",
+        ),
+        # An attestation that names no artefact attests to nothing. This has no
+        # counterpart in the script gate and is deliberate.
+        CheckConstraint(
+            "video_attested_at IS NULL OR video_asset_hash IS NOT NULL",
+            name="video_attestation_needs_asset",
         ),
         # A package id/version is either both present (ingested) or both absent.
         CheckConstraint(
