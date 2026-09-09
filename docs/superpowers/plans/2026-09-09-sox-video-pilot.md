@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **Migration head is `0011_audit_log_no_truncate`.** The new migration is `0012` and must set `down_revision = "0011_audit_log_no_truncate"`.
-- **CHECK constraint names are bare and short.** The metadata naming convention prefixes `ck_content_draft_`; pre-prefixing produces the double-prefix bug already hit on the consumer tables. Write `name="video_attestation_pair"`, never `name="ck_content_draft_video_attestation_pair"`.
+- **CHECK constraint names are bare and short — in the model AND in the migration.** `alembic/env.py` binds `target_metadata = Base.metadata`, so Alembic applies the same `ck_%(table_name)s_%(constraint_name)s` convention. Write `"video_attestation_pair"` in both places, never `"ck_content_draft_video_attestation_pair"` — that yields `ck_content_draft_ck_content_draft_...`. See `0010_consumer_subscription.py` for the worked example. For foreign keys, pass `None` and let the convention name it.
 - **Separation-of-duties CHECKs must carry the null-generator escape.** `generated_by_user_id` is nullable; the existing script-gate CHECK reads `approved_by_user_id IS NULL OR generated_by_user_id IS NULL OR approved_by_user_id <> generated_by_user_id`. Mirror all three clauses or a draft with no recorded generator can never be attested.
 - **CI lints three paths:** `ruff check pramana tests scripts` and `ruff format --check pramana tests scripts`. The Makefile only lints two — trust CI, not the Makefile.
 - **Type checking:** `mypy pramana scripts` must stay clean.
@@ -366,20 +366,33 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pramana.db.models.content import ContentDraft
+from pramana.db.models.course import Course
 from pramana.db.models.identity import Tenant, User
 
 pytestmark = pytest.mark.integration
 
 
 async def _draft(db: AsyncSession, *, generated_by: uuid.UUID | None, **overrides) -> ContentDraft:
+    """Seed a draft with the rows its NOT NULL foreign keys require.
+
+    ``content_draft.course_id`` is NOT NULL with an FK to ``course``. Without a
+    real Course every test below would fail on that FK rather than on the CHECK
+    it is meant to exercise — and a test that fails for the wrong reason proves
+    nothing.
+    """
     tenant = Tenant(id=uuid.uuid4(), name="T", short_code=uuid.uuid4().hex[:12])
     db.add(tenant)
+    await db.flush()
+    course = Course(id=uuid.uuid4(), tenant_id=tenant.id, title="Compliance 101")
+    db.add(course)
     await db.flush()
     draft = ContentDraft(
         id=uuid.uuid4(),
         tenant_id=tenant.id,
+        course_id=course.id,
         title="ICFR awareness",
         status="draft",
+        body={},
         generated_by_user_id=generated_by,
         **overrides,
     )
@@ -581,38 +594,41 @@ def upgrade() -> None:
         _TABLE, sa.Column("video_attested_at", sa.DateTime(timezone=True), nullable=True)
     )
     op.add_column(_TABLE, sa.Column("video_attestation_text", sa.Text(), nullable=True))
+    # None: the metadata naming convention generates the FK name. Passing an
+    # explicit one risks double-prefixing, same as the CHECKs below.
     op.create_foreign_key(
-        "fk_content_draft_video_attested_by_user_id_user",
+        None,
         _TABLE,
         "user",
         ["video_attested_by_user_id"],
         ["user_id"],
         ondelete="RESTRICT",
     )
+    # SUFFIX ONLY — the naming convention prefixes ck_content_draft_. Passing a
+    # pre-prefixed name yields ck_content_draft_ck_content_draft_... See how
+    # 0010 does it: op.create_check_constraint("view_count_nonneg", ...).
     op.create_check_constraint(
-        "ck_content_draft_video_attestation_pair",
+        "video_attestation_pair",
         _TABLE,
         "(video_attested_by_user_id IS NULL) = (video_attested_at IS NULL)",
     )
     op.create_check_constraint(
-        "ck_content_draft_video_separation_of_duties",
+        "video_separation_of_duties",
         _TABLE,
         "video_attested_by_user_id IS NULL "
         "OR generated_by_user_id IS NULL "
         "OR video_attested_by_user_id <> generated_by_user_id",
     )
     op.create_check_constraint(
-        "ck_content_draft_video_attestation_needs_asset",
+        "video_attestation_needs_asset",
         _TABLE,
         "video_attested_at IS NULL OR video_asset_hash IS NOT NULL",
     )
 
 
 def downgrade() -> None:
-    op.drop_constraint("ck_content_draft_video_attestation_needs_asset", _TABLE)
-    op.drop_constraint("ck_content_draft_video_separation_of_duties", _TABLE)
-    op.drop_constraint("ck_content_draft_video_attestation_pair", _TABLE)
-    op.drop_constraint("fk_content_draft_video_attested_by_user_id_user", _TABLE)
+    # No explicit constraint drops: Postgres drops a CHECK or FK automatically
+    # with the column it references, which also sidesteps having to name them.
     op.drop_column(_TABLE, "video_attestation_text")
     op.drop_column(_TABLE, "video_attested_at")
     op.drop_column(_TABLE, "video_attested_by_user_id")
@@ -620,7 +636,7 @@ def downgrade() -> None:
     op.drop_column("course_version", "transcript")
 ```
 
-Note the asymmetry and do not "fix" it: **model** `CheckConstraint(name=...)` takes the bare name because the metadata naming convention adds the `ck_content_draft_` prefix, while **`op.create_check_constraint`** in the migration takes the fully-prefixed name because Alembic's op does not apply that convention. Writing the prefixed name in the model is the double-prefix bug.
+**Both the model and the migration take BARE, suffix-only names.** `alembic/env.py` binds `target_metadata = Base.metadata`, so Alembic inherits the same `ck_%(table_name)s_%(constraint_name)s` convention and prefixes whatever name you hand it. Passing `"ck_content_draft_video_attestation_pair"` produces `ck_content_draft_ck_content_draft_video_attestation_pair`. Migration `0010` is the worked example — `op.create_check_constraint("view_count_nonneg", "enrollment", ...)` above the comment *"Suffix only — naming convention prefixes ck_enrollment_"*. An earlier revision of this plan claimed the migration wanted the prefixed name and called it a deliberate asymmetry; that was wrong.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -751,11 +767,15 @@ In `pramana/domain/enums.py`, add to `ContentEvent` after `APPROVE`:
 
 - [ ] **Step 4: Teach `_snapshot` about the video**
 
-In `pramana/services/content_review.py`, import the projector and extend `_snapshot`:
+Extend `_snapshot` in `pramana/services/content_review.py`.
 
-```python
-from pramana.domain.video_generation import materialize_video
-```
+**Use a cheap presence check, NOT `materialize_video`.** `materialize_video`
+*raises* `ValidationError` on a malformed video block, and `_snapshot` runs on
+every approval-path read — submit, approve, reject, publish. Routing validation
+through it would make a malformed body break unrelated operations and surface the
+failure far from its cause. Validation stays where it already is: `publish_draft`
+calls `materialize_video` separately and still rejects a malformed block at
+publish.
 
 ```python
 def _snapshot(draft: ContentDraft) -> ca.ContentDraftSnapshot:
@@ -768,8 +788,10 @@ def _snapshot(draft: ContentDraft) -> ca.ContentDraftSnapshot:
         approved_at=draft.approved_at,
         content_hash=draft.content_hash,
         published_course_version_id=draft.published_course_version_id,
-        # A body carrying a well-formed video block is what publish gates on.
-        has_video=materialize_video(draft.body or {}) is not None,
+        # Presence only — deliberately not materialize_video, which raises on a
+        # malformed block and would then fail every read path. publish_draft
+        # validates the block separately, which is where a malformed one belongs.
+        has_video=bool((draft.body or {}).get("video")),
         video_asset_hash=draft.video_asset_hash,
         video_attested_by_user_id=draft.video_attested_by_user_id,
         video_attested_at=draft.video_attested_at,
