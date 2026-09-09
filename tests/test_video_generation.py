@@ -218,18 +218,18 @@ class TestSceneBriefs:
         briefs = vg.build_scene_briefs(clause_title="ICFR", narration_lines=lines)
         assert [b.shots[0].dialogue for b in briefs] == lines
 
-    def test_the_whole_segment_fits_the_local_provider_budget(self) -> None:
-        """The cap applies per render, and each brief is one render.
+    def test_each_render_costs_the_default_and_the_segment_totals_ten(self) -> None:
+        """The cap is per render, and each brief is one render.
 
-        The vacuous version of this test summed shots *within* one brief — always
-        2.0s, since every brief holds one shot — so it passed no matter what. What
-        matters is that no single brief exceeds the cap, and that the segment as a
-        whole is the size we costed the render against.
+        Asserting only the aggregate cannot see the difference between five
+        renders of 2s and one render of 10s — the total is 10s either way, and
+        the cap rejects only `> 10`. The per-brief list is what distinguishes
+        them, so assert that.
         """
         briefs = vg.build_scene_briefs(clause_title="ICFR", narration_lines=["a"] * 5)
         per_brief = [sum(s.duration_s for s in b.shots) for b in briefs]
-        assert all(d <= 10 for d in per_brief), per_brief
-        assert sum(per_brief) == 10.0  # 5 lines x the 2.0s default
+        assert per_brief == [2.0] * 5, per_brief
+        assert all(d <= 10 for d in per_brief)
 
     def test_the_default_shot_duration_is_used_when_not_given(self) -> None:
         """The previous test passed shot_duration_s explicitly, so the module
