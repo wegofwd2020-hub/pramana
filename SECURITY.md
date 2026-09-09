@@ -31,7 +31,8 @@
 - Admin and auditor actions are logged.
 
 **Data protection**
-- Encryption in transit (TLS) and at rest.
+- Encryption in transit (TLS) — **verified 2026-09-09**: TLS 1.2/1.3 only (1.0/1.1 rejected), plain HTTP 301-redirects, HSTS `max-age=31536000; includeSubDomains`, and neither the app nor Postgres is reachable except through nginx.
+- Encryption at rest — **NOT IMPLEMENTED, verified 2026-09-09.** The Postgres volume lives on a plain ext4 partition with no dm-crypt or LUKS, so the hash-chained `audit_log` is stored in cleartext. The chain proves rows were not *altered*; it does not stop them being *read* from a snapshot, copied image or recovered disk. Options and their trade-offs are recorded in `TICKETS/PR-4-injection-safe-secrets-encryption.md`; choosing one is a deployment decision.
 - PII minimized to what compliance reporting requires.
 - Tenant/data isolation enforced at the query layer (row scoping).
 
