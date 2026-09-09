@@ -1360,6 +1360,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--resolution", default="320p")
     parser.add_argument("--steps", type=int, default=8)
     parser.add_argument("--shot-duration", type=float, default=2.0)
+    parser.add_argument("--threads", type=int, default=4, help="pin to physical cores")
+    parser.add_argument("--timeout", type=int, default=7200, help="abort rather than run all night")
     args = parser.parse_args(argv)
 
     plan = build_plan(
@@ -1375,11 +1377,22 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     # Imported here so --dry-run needs neither torch nor the [local] extra.
-    from wegofwd_video import VideoRequest, resolve_role
-    from wegofwd_video.providers.local_diffusion import LocalDiffusionProvider
+    import wegofwd_video as wv
 
-    provider_id, model = resolve_role("local-preview")
-    provider = LocalDiffusionProvider(model=model)
+    provider_id, model = wv.resolve_role("local-preview")
+    # steps/guidance/timeout/on_progress belong to the PROVIDER, not the request.
+    provider = wv.build_provider(
+        provider_id,
+        model=model,
+        steps=args.steps,
+        guidance=1.0,
+        timeout=args.timeout,
+        on_progress=lambda step, total, elapsed: print(
+            f"    step {step}/{total}  {elapsed / step:6.1f} s/step",
+            flush=True,
+        ),
+        threads=args.threads,
+    )
 
     clips: list[Path] = []
     scenes: list[dict[str, Any]] = []
@@ -1389,22 +1402,27 @@ def main(argv: list[str] | None = None) -> int:
             clip = Path(tmp) / f"scene_{i:02d}.mp4"
             t0 = time.monotonic()
             result = provider.generate(
-                VideoRequest(
+                wv.VideoRequest(
                     brief=brief,
                     resolution=args.resolution,
+                    aspect_ratio="16:9",
+                    fps=24,
+                    target_duration_s=args.shot_duration,
                     seed=args.seed + i,
-                    vendor_opts={"steps": args.steps},
+                    audio=False,  # local-preview declares native_audio=False
                 )
             )
-            clip.write_bytes(result.content)
+            if not result.asset_bytes:
+                raise RuntimeError(f"scene {i} produced no asset_bytes")
+            clip.write_bytes(result.asset_bytes)
             elapsed = time.monotonic() - t0
-            print(f"[ scene {i}    ] {elapsed / 60:.1f} min, {len(result.content)} bytes")
+            print(f"[ scene {i}    ] {elapsed / 60:.1f} min, {len(result.asset_bytes)} bytes")
             clips.append(clip)
             scenes.append({
                 "index": i,
                 "seed": args.seed + i,
                 "wall_clock_s": round(elapsed, 1),
-                "bytes": len(result.content),
+                "bytes": len(result.asset_bytes),
                 "raw": getattr(result, "raw", {}),
             })
         concat(clips, args.out)
@@ -1435,7 +1453,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-Check `LocalDiffusionProvider`'s constructor and `VideoRequest`'s field names against `wegofwd-video/scripts/first_local_run.py` before running — that harness is the working reference for how the provider is driven, including the per-step callback and the wall-clock budget. If the names differ, follow the reference, not this snippet.
+**The API above is verified against `wegofwd-video/scripts/first_local_run.py`, the working reference.** Three things an earlier revision of this plan got wrong, so do not "restore" them: `VideoRequest` has NO `vendor_opts` field; `steps`, `guidance`, `timeout`, `on_progress` and `threads` are arguments to `wv.build_provider`, not to the request; and the rendered bytes are `result.asset_bytes`, not `result.content`. Read `first_local_run.py` if anything else is unclear — it is the harness that actually produced a clip on this hardware.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
