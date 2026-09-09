@@ -292,3 +292,28 @@ class TestVideoFidelityAttestation:
         )
         assert attested.approved_by_user_id == APPROVER_ID
         assert attested.content_hash == "sha256:script"
+
+    def test_a_published_snapshot_cannot_carry_an_unattested_video(self) -> None:
+        """The invariant must hold even when nobody replayed the transition."""
+        with pytest.raises(ValueError, match="fidelity attestation"):
+            ca.ContentDraftSnapshot(
+                status=ContentDraftStatus.PUBLISHED,
+                has_content=True,
+                has_video=True,
+                approved_by_user_id=APPROVER_ID,
+                approved_at=NOW,
+                content_hash="sha256:script",
+                published_course_version_id=uuid.uuid4(),
+            )
+
+    def test_approved_may_carry_an_unattested_video(self) -> None:
+        """The gap between the two gates is a legal state, not a violation."""
+        snapshot = ca.ContentDraftSnapshot(
+            status=ContentDraftStatus.APPROVED,
+            has_content=True,
+            has_video=True,
+            approved_by_user_id=APPROVER_ID,
+            approved_at=NOW,
+            content_hash="sha256:script",
+        )
+        assert snapshot.video_attested_at is None

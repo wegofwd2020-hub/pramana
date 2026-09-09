@@ -125,6 +125,17 @@ class ContentDraftSnapshot:
         if self.video_attested_at is not None and not self.video_asset_hash:
             raise ValueError("a video attestation requires video_asset_hash")
 
+        # A published draft carrying footage nobody attested is a state the
+        # system must never hold. APPROVED with an unattested video is legal and
+        # expected — that is exactly the gap between the accuracy gate and the
+        # fidelity gate — so only PUBLISHED is constrained here.
+        if (
+            self.status is ContentDraftStatus.PUBLISHED
+            and self.has_video
+            and self.video_attested_at is None
+        ):
+            raise ValueError("PUBLISHED draft carries a video with no fidelity attestation")
+
 
 # ---------------------------------------------------------------------------
 # Transitions
