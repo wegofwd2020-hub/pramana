@@ -1558,13 +1558,17 @@ class TestSoxVideoPilotEndToEnd:
             actor_user_id=ATTESTER_ID, video_asset_hash=ASSET_HASH,
             attestation_text="Footage matches the approved script.", now=NOW,
         )
-        published = await content_review.publish_draft(
+        version = await content_review.publish_draft(
             db, draft_id=draft.id, tenant_id=draft.tenant_id,
             publisher_user_id=APPROVER_ID, now=NOW,
         )
         await db.commit()
-        assert published.status == ContentDraftStatus.PUBLISHED.value
-        assert published.published_course_version_id is not None
+        # publish_draft returns the new CourseVersion, not the draft. Assert the
+        # draft reached PUBLISHED by re-reading it.
+        assert version is not None
+        refreshed = await db.get(ContentDraft, draft.id)
+        assert refreshed.status == ContentDraftStatus.PUBLISHED.value
+        assert refreshed.published_course_version_id == version.id
 
     async def test_the_published_version_carries_the_attested_asset(self, db) -> None:
         draft = await _approved_video_draft(
@@ -1575,12 +1579,11 @@ class TestSoxVideoPilotEndToEnd:
             actor_user_id=ATTESTER_ID, video_asset_hash=ASSET_HASH,
             attestation_text="ok", now=NOW,
         )
-        published = await content_review.publish_draft(
+        version = await content_review.publish_draft(
             db, draft_id=draft.id, tenant_id=draft.tenant_id,
             publisher_user_id=APPROVER_ID, now=NOW,
         )
         await db.commit()
-        version = await db.get(CourseVersion, published.published_course_version_id)
         assert version.video_asset_id == VIDEO_BODY["video"]["asset_ref"]
         assert version.min_watch_pct == VIDEO_BODY["video"]["min_watch_pct"]
 
@@ -1608,7 +1611,9 @@ class TestSoxVideoPilotEndToEnd:
         assert by_event[ContentEvent.APPROVE.value] != by_event[ContentEvent.ATTEST_VIDEO.value]
 ```
 
-Write `_seed_draft` as a local helper that inserts a `Tenant`, a `Course` and a `ContentDraft` with the given body, mirroring `seed_course` in `tests/integration/conftest.py`. Check `content_review`'s real function names before running — this plan assumes `submit_for_review_draft`, `approve_draft` and `publish_draft`; if the module names them differently, follow the module. Read `tests/integration/test_consumer_end_to_end.py` first: it already does an assign-through-completion walk and is the closest existing model for the fixtures and imports.
+Write `_seed_draft` as a local helper that inserts a `Tenant`, a `Course` and a `ContentDraft` with the given body, mirroring `seed_course` in `tests/integration/conftest.py`. Note `content_draft.course_id` is NOT NULL with an FK to `course`, and the users table is `user_account`, not `user`.
+
+**`publish_draft` returns a `CourseVersion`, not the draft** — assert the draft reached `PUBLISHED` by re-reading it, as the tests above do. Check `content_review`'s real function names before writing: this plan assumes `submit_for_review_draft`, `approve_draft` and `publish_draft`; if the module names them differently, follow the module. Read `tests/integration/test_consumer_end_to_end.py` first: it already does an assign-through-completion walk and is the closest existing model for the fixtures and imports.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
