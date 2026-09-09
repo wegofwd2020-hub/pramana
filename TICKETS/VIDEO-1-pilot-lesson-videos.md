@@ -1,0 +1,136 @@
+# VIDEO-1 — Generated lesson videos for six pilot user stories
+
+**Labels:** feature, content, video
+**Refs:** ADR-026 (wegofwd-video integration), US-PLATFORM-0002 (course player),
+US-PLATFORM-0004 (ingestion review queue), `docs/02_resolved_decisions.md`
+**Status:** draft for discussion — nothing decided yet
+
+## Scope
+
+Six stories were named as the limited set:
+
+| story | framework | what it actually asks for |
+|---|---|---|
+| US-FCPA-0001 | FCPA | anti-bribery training, **risk-based population the officer selects** |
+| US-GDPR-0001 | GDPR | data-protection awareness, **staff who process personal data** |
+| US-HIPAA-0001 | HIPAA | Privacy Rule / PHI handling, **all workforce** (§164.530(b)) |
+| US-ISO-0001 | ISO 27001 | infosec awareness, **all in-scope personnel** (A.6.3 / Cl. 7.3) |
+| US-PCI-0001 | PCI DSS | CDE security awareness, **CDE-access personnel only** (Req 12.6) |
+| US-SOX-0007 | SOX | **not a training story** — the human-approval gate (see below) |
+
+## The shape of the set, which matters more than the count
+
+**Five of the six are the same story.** FCPA/GDPR/HIPAA/ISO/PCI-0001 carry
+near-identical acceptance criteria: assign to a population with a due date and an
+audit entry; pass → certificate pinned to the exact content version; dashboard
+coverage of complete/overdue/blocked. All five already ride US-PLATFORM-0001/0002
+and 0003/0004. **They differ only in two things: who is targeted, and what the
+content says.** Video is the second of those — so this is one piece of work
+instantiated five times, not five pieces of work.
+
+**The sixth is the control, not a lesson.** US-SOX-0007 says AI-drafted content
+arrives as an **untrusted draft** that a human who is *not* the generator must
+review and approve, with §-citations, a frozen hash, and quarantine on failed
+verification. A generated video is precisely the untrusted-draft case that story
+exists for. Reading it as "a sixth video to make" would miss the point: **it is
+the gate the other five must pass through.** That is what makes this a coherent
+set rather than an arbitrary six.
+
+**Three of the five overlap by declaration.** ISO-0001 `also_satisfies`
+[hipaa, gdpr]; GDPR-0001 and PCI-0001 both `also_satisfies` [iso27001]. The
+security-awareness topics genuinely repeat across them — acceptable use,
+phishing, incident reporting. Whether that means five videos or a shared core
+plus framework-specific segments is an open question below, not a settled one.
+
+## What already exists
+
+- **The seam is built.** `domain/video_generation.build_video_brief` →
+  `services/video_generation.attach_course_video` → `materialize_video`, with
+  `body.video.asset_ref`, `min_watch_pct` on `CourseVersion`, and
+  `play_session` recording consumer views.
+- **The renderer works, on two paths.** `wegofwd-video` exposes `narrative-video`
+  (Veo) and, as of 2026-09-09, `local-preview` (LTX-Video on CPU, verified —
+  see `docs/local-diffusion-cpu-poc.md`). Both consume the same `VideoBrief`.
+- **The approval machinery is built** — `domain/content_approval.py`, the
+  review queue, separation of duties, version pinning.
+
+So this ticket is mostly **content and policy**, not new plumbing.
+
+## What is not settled, and blocks a plan
+
+### 1. A resolved decision currently says the opposite
+
+`docs/02_resolved_decisions.md:274` reads: *"Video content is **pre-recorded** and
+uploaded by content authors. No live-session training in scope."* Generating video
+contradicts that as written. Nobody has recorded that it was superseded. **Whatever
+is decided here has to update that line**, or the two documents disagree in a repo
+whose whole point is auditable evidence.
+
+### 2. Local CPU rendering cannot produce these lessons
+
+From the measured constant (19.7 s/step at 336 latent tokens ⇒ **~0.059 s per
+latent token per step**), cost scales with `w/32 × h/32 × (frames−1)/8`:
+
+| geometry | latent tokens | s/step | 8 steps |
+|---|---|---|---|
+| 448×256, 25 f (1 s) — *measured* | 336 | 19.7 | ~2.6 min |
+| 576×320, 49 f (2 s) | 1 080 | ~63 | ~8 min |
+| **864×480, 97 f (4 s)** | **4 860** | **~285** | **~38 min** |
+
+A single 4-second 480p scene is ~38 minutes of stepping on mambakkam, before
+load, T5 encode and VAE decode. A one-minute lesson is roughly 15 such scenes —
+**~10 hours per lesson, ~50 hours for five** — and peak RSS was already 23.9 GB
+of 32 GB at the *smallest* geometry, so 480p is a live out-of-memory risk, not
+merely slow.
+
+**Conclusion: local is for validating briefs, not for producing the pilot.**
+Production rendering needs a rented GPU (~1 min/brief, $0.40–0.80/h spot) or
+Veo — and Veo is still blocked on quota and the Vertex-vs-Developer-API decision
+(`docs/provider-survey-2026-09.md`).
+
+### 3. Nothing defines what a lesson *is*
+
+There is no agreed length, scene count, or structure for a compliance lesson.
+`tests/data/sox_lesson_brief.json` is two shots of two seconds — a smoke test,
+not a lesson. Cost, effort and review burden all depend on this answer and
+nothing else can be estimated until it exists.
+
+### 4. Audio is not covered
+
+The briefs carry `dialogue` and `audio_direction`, but neither provider produces
+narration on the local path (`native_audio=False`), and Veo's audio is
+Vertex-only. Awareness training without narration is a weak product. A TTS step
+would have to pair with the render.
+
+### 5. Approval of a *video* is not the same as approval of text
+
+US-SOX-0007 requires every claim to cite its section so accuracy is verifiable.
+A reviewer can check that in a script. In a rendered video the claims live in
+narration and on-screen action, and the frozen hash covers the asset, not the
+assertions. **How a reviewer approves a video against §-citations is genuinely
+undefined**, and it is the part most likely to matter to an auditor.
+
+## Open questions for the discussion
+
+1. **Five videos, or a shared awareness core plus framework segments?** The
+   `also_satisfies` overlaps argue for the second; the evidence trail (a
+   certificate pinned to *one* content version per framework) argues for the first.
+2. **What is a lesson?** Length, scene count, structure. Everything else costs
+   out from this.
+3. **Where does the pilot render** — rented GPU, Veo (unblock quota first), or
+   local at a reduced geometry accepting the quality hit?
+4. **Does US-SOX-0007's gate apply to the video asset, the script, or both** —
+   and what does the reviewer actually attest to?
+5. **Is narration in scope for the pilot**, or are these silent visuals over
+   existing text?
+6. **Does this supersede resolved decision #274**, and who records that?
+7. **Is the pilot one framework end-to-end first** (SOX or HIPAA, say) rather
+   than five in parallel? Cheaper to learn from, and the five are near-identical
+   anyway.
+
+## Deliberately not in this ticket
+
+Population targeting (`User.cde_access`, risk tiering, workforce designation) —
+each story flags it as a separate concern and the officer is assumed to select
+the population. Dashboards, evidence binders, refresher cadence, and role
+tailoring all have their own stories.
