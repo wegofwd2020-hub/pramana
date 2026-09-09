@@ -218,14 +218,25 @@ class TestSceneBriefs:
         briefs = vg.build_scene_briefs(clause_title="ICFR", narration_lines=lines)
         assert [b.shots[0].dialogue for b in briefs] == lines
 
-    def test_each_brief_stays_under_the_local_provider_duration_cap(self) -> None:
-        """local-preview declares max_duration_s = 10; a longer brief is refused."""
-        briefs = vg.build_scene_briefs(
-            clause_title="ICFR",
-            narration_lines=["a"] * 5,
-            shot_duration_s=2.0,
-        )
-        assert all(sum(s.duration_s for s in b.shots) <= 10 for b in briefs)
+    def test_the_whole_segment_fits_the_local_provider_budget(self) -> None:
+        """The cap applies per render, and each brief is one render.
+
+        The vacuous version of this test summed shots *within* one brief — always
+        2.0s, since every brief holds one shot — so it passed no matter what. What
+        matters is that no single brief exceeds the cap, and that the segment as a
+        whole is the size we costed the render against.
+        """
+        briefs = vg.build_scene_briefs(clause_title="ICFR", narration_lines=["a"] * 5)
+        per_brief = [sum(s.duration_s for s in b.shots) for b in briefs]
+        assert all(d <= 10 for d in per_brief), per_brief
+        assert sum(per_brief) == 10.0  # 5 lines x the 2.0s default
+
+    def test_the_default_shot_duration_is_used_when_not_given(self) -> None:
+        """The previous test passed shot_duration_s explicitly, so the module
+        default was never exercised. If the default drifted upward, a five-line
+        segment would silently exceed the per-render cap."""
+        briefs = vg.build_scene_briefs(clause_title="ICFR", narration_lines=["a", "b"])
+        assert [s.duration_s for b in briefs for s in b.shots] == [2.0, 2.0]
 
     def test_ordering_comes_from_list_position_not_scene_index(self) -> None:
         """Each brief holds one shot, so its own scene_index is always 1.
@@ -246,3 +257,17 @@ class TestSceneBriefs:
         whole composition."""
         briefs = vg.build_scene_briefs(clause_title="ICFR", narration_lines=["a", "   ", "", "b"])
         assert len(briefs) == 2
+
+    def test_style_negative_and_audio_direction_are_forwarded(self) -> None:
+        """These are pass-through arguments; a dropped one would silently revert
+        every scene to the module defaults."""
+        briefs = vg.build_scene_briefs(
+            clause_title="ICFR",
+            narration_lines=["a", "b"],
+            style="stark monochrome",
+            negative="no text, no logos",
+            audio_direction="measured narrator",
+        )
+        assert all(b.global_style == "stark monochrome" for b in briefs)
+        assert all(b.global_negative == "no text, no logos" for b in briefs)
+        assert all(b.audio_direction == "measured narrator" for b in briefs)
