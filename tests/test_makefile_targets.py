@@ -70,3 +70,37 @@ def test_no_target_references_a_celery_app_that_does_not_exist() -> None:
     assert any(type(v).__name__ == "Celery" for v in vars(module).values()), (
         f"Makefile runs celery against {module_path.group(1)}, which defines no Celery application"
     )
+
+
+# ---------------------------------------------------------------------------
+# Operational scripts (TICKETS/PR-2)
+# ---------------------------------------------------------------------------
+#: ``$(PYTHON) scripts/<name>.py`` — the shape every operational target uses.
+_SCRIPT = re.compile(r"\$\(PYTHON\)\s+(scripts/[\w/]+\.py)")
+
+
+def _script_targets() -> list[str]:
+    return _SCRIPT.findall(_makefile())
+
+
+def test_every_script_a_target_invokes_exists() -> None:
+    """A target naming a script that was renamed or never landed fails silently
+    until an operator runs it — which, for these, is during an incident."""
+    root = MAKEFILE.parent
+    targets = _script_targets()
+    assert targets, "no $(PYTHON) scripts/... targets found — has the Makefile changed shape?"
+    missing = [t for t in targets if not (root / t).is_file()]
+    assert not missing, f"Makefile invokes scripts that do not exist: {missing}"
+
+
+@pytest.mark.parametrize("target", ["archive-audit", "verify-audit"])
+def test_the_audit_evidence_targets_are_declared(target: str) -> None:
+    """Both halves of the evidence story stay reachable from `make`.
+
+    ``verify-audit`` is the one that answers "has this been tampered with?", and
+    it is reached for precisely when the application is not trusted — so it must
+    not depend on someone remembering the script path.
+    """
+    body = _makefile()
+    assert f"\n{target}:" in body, f"{target} is not a Makefile target"
+    assert target in body.split("PYTHON :=")[0], f"{target} is missing from .PHONY"

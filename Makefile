@@ -2,7 +2,7 @@
 # Run `make help` for available targets.
 
 .PHONY: help install dev-install lint format type-check test test-cov \
-        pre-commit clean migrate migrate-create run security-scan status grant-role archive-audit docker-build docker-up docker-down \
+        pre-commit clean migrate migrate-create run security-scan status grant-role archive-audit verify-audit docker-build docker-up docker-down \
         recompute-counters
 
 PYTHON := python3
@@ -90,6 +90,9 @@ status:  ## Regenerate the README status table from project-status.yaml.
 
 archive-audit:  ## Mirror pending audit rows to WORM storage. Add status=1 or dry=1 to inspect.
 	$(PYTHON) scripts/archive_audit.py $(if $(status),--status,) $(if $(dry),--dry-run,)
+
+verify-audit:  ## Check the audit evidence is intact (row chain + archive continuity). Add strict=1 to fail on archival lag.
+	$(PYTHON) scripts/verify_audit.py $(if $(strict),--strict-archive,)
 
 grant-role:  ## Bootstrap a role out of band. Usage: make grant-role email=you@example.com [role=auditor]
 	$(PYTHON) scripts/grant_role.py --email "$(email)" $(if $(role),--role "$(role)",)

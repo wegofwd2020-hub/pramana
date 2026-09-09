@@ -28,7 +28,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pramana.db.models.audit import AuditArchiveSegment, AuditLog
-from pramana.domain.audit_archive import SegmentManifest, build_segment
+from pramana.domain.audit_archive import (
+    ArchiveVerification,
+    SegmentManifest,
+    build_segment,
+    verify_segment_continuity,
+)
 from pramana.services.audit_query import to_audit_row
 
 #: ``(body, key, retain_until) -> stored key``. Injected so the service is
@@ -114,3 +119,42 @@ async def unarchived_count(session: AsyncSession) -> int:
             )
         ).scalar_one()
     )
+
+
+async def recorded_manifests(session: AsyncSession) -> list[SegmentManifest]:
+    """Every archived segment, as the manifests the domain layer verifies."""
+    rows = (
+        (
+            await session.execute(
+                select(AuditArchiveSegment).order_by(AuditArchiveSegment.first_audit_id.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        SegmentManifest(
+            first_audit_id=row.first_audit_id,
+            last_audit_id=row.last_audit_id,
+            row_count=row.row_count,
+            prev_audit_hash=row.prev_audit_hash,
+            head_audit_hash=row.head_audit_hash,
+        )
+        for row in rows
+    ]
+
+
+async def verify_archive(session: AsyncSession) -> ArchiveVerification:
+    """Is the archive one unbroken run of segments?
+
+    The chain proves no *row* was altered. This proves no *segment* was dropped —
+    the failure the manifests were built to expose, and which nothing looked for
+    until PR-2: :func:`~pramana.domain.audit_archive.segments_are_contiguous`
+    had only ever been called from its own tests.
+
+    Reads the bookkeeping, not the object store. A segment recorded here whose
+    object has since been deleted from the bucket still reports as intact, which
+    is why Object Lock in COMPLIANCE mode is the control that matters for the
+    objects themselves.
+    """
+    return verify_segment_continuity(await recorded_manifests(session))

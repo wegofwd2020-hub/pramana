@@ -19,6 +19,7 @@ auditor must be able to re-implement this and agree, without running Pramana.
 
 from __future__ import annotations
 
+import itertools
 import json
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
@@ -117,4 +118,80 @@ def segments_are_contiguous(earlier: SegmentManifest, later: SegmentManifest) ->
     return (
         later.first_audit_id == earlier.last_audit_id + 1
         and later.prev_audit_hash == earlier.head_audit_hash
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ArchiveGap:
+    """A break between two consecutive archived segments."""
+
+    #: ``last_audit_id`` of the segment before the break.
+    after_audit_id: int
+    #: ``first_audit_id`` of the segment after it.
+    before_audit_id: int
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ArchiveVerification:
+    """Whether the archive, as recorded, is one unbroken run of segments."""
+
+    segment_count: int
+    gaps: tuple[ArchiveGap, ...]
+    #: Highest ``last_audit_id`` covered, or ``None`` when nothing is archived.
+    covered_through: int | None
+
+    @property
+    def intact(self) -> bool:
+        return not self.gaps
+
+
+def verify_segment_continuity(manifests: Sequence[SegmentManifest]) -> ArchiveVerification:
+    """Check a whole archive end to end, not just one neighbouring pair.
+
+    :func:`segments_are_contiguous` has existed since the archive was built and
+    was called from nothing but its own tests, so a **dropped segment — the
+    exact failure the manifests were designed to expose — was never actually
+    looked for.** This walks the recorded segments in order and reports every
+    break.
+
+    Ordering is by ``first_audit_id`` rather than by insertion: the caller may
+    hand these over in any order, and a gap is a property of the id/hash run,
+    not of when rows happened to be written.
+
+    An empty archive is reported as intact with ``covered_through=None``. That is
+    not an endorsement — nothing archived is a *different* problem, and the
+    caller should look at how many rows are still pending — but it is genuinely
+    not a *break*, and conflating the two would make "the archive has a hole"
+    fire on every fresh deployment.
+    """
+    ordered = sorted(manifests, key=lambda m: m.first_audit_id)
+    gaps: list[ArchiveGap] = []
+    for earlier, later in itertools.pairwise(ordered):
+        if segments_are_contiguous(earlier, later):
+            continue
+        if later.first_audit_id != earlier.last_audit_id + 1:
+            reason = (
+                f"ids jump from {earlier.last_audit_id} to {later.first_audit_id} "
+                f"— {later.first_audit_id - earlier.last_audit_id - 1} row(s) unaccounted for"
+            )
+        else:
+            # Ids line up but the hash link does not: the stronger signal, since
+            # only a segment that genuinely follows can carry the right hash.
+            reason = (
+                "ids are consecutive but the hash link is broken — the later "
+                "segment does not follow the earlier one"
+            )
+        gaps.append(
+            ArchiveGap(
+                after_audit_id=earlier.last_audit_id,
+                before_audit_id=later.first_audit_id,
+                reason=reason,
+            )
+        )
+
+    return ArchiveVerification(
+        segment_count=len(ordered),
+        gaps=tuple(gaps),
+        covered_through=ordered[-1].last_audit_id if ordered else None,
     )
