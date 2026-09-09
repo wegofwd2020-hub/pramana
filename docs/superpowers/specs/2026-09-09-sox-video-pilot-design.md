@@ -83,19 +83,22 @@ Neither reviewer is asked to do the other's job.
 ## Pipeline
 
 ```
-SOX ICFR script            →  ContentDraft (RECEIVED)
+SOX ICFR script            →  ContentDraft (DRAFT)
                                   │
-          GATE 1 (existing): accuracy; approver ≠ generator; freezes content_hash
-                                  │  RECEIVED → IN_REVIEW → APPROVED
-build_video_brief(draft)   →  one VideoBrief PER narration line   (see below)
+one single-shot brief PER narration line          (see below)
                                   │
 wegofwd-video local-preview  →  one .mp4 per brief (576×320, 8 steps, fixed seed)
+ffmpeg concat                →  the segment
                                   │
-ffmpeg concat              →  the segment
+attach_course_video        →  body.video.asset_ref + min_watch_pct   [DRAFT only]
                                   │
-attach_course_video        →  body.video.asset_ref + min_watch_pct
+submit_for_review                                  DRAFT → IN_REVIEW
                                   │
-          GATE 2 (new): fidelity; approver ≠ generator; records video_asset_hash
+          GATE 1 (existing): accuracy; approver ≠ generator
+                             freezes content_hash over the body      → APPROVED
+                                  │
+          GATE 2 (new): fidelity; attester ≠ generator
+                             records video_asset_hash over the bytes
                                   │
 publish                    →  immutable CourseVersion
                                   │  ← REFUSES a draft carrying an unattested video
@@ -105,6 +108,15 @@ certificate pinned to the exact CourseVersion
                                   │
 US-SOX-0006 §404 binder: the completion plus both attestations
 ```
+
+**Why the render happens before review, not after approval.**
+`attach_course_video` refuses any draft not in `DRAFT` status, so the video is
+attached before the draft is ever submitted. That is the better order anyway: the
+reviewer can watch the footage at review time, and the two hashes then cover two
+different things — `content_hash` freezes the body (script plus asset reference),
+`video_asset_hash` freezes the rendered bytes. An earlier draft of this spec had
+the render after approval, which would have mutated the body after `content_hash`
+froze it and broken the freeze.
 
 Scene count is a property of the script: `build_video_brief` emits **one shot per
 narration line**, so a 5-scene segment means a 5-line approved script. Scene count
