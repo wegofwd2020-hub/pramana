@@ -24,6 +24,51 @@ learners with nobody having watched it.
 Artifacts (not committed — they are large and reproducible from the seed):
 `~/Downloads/sox-pilot-run/{sox-pilot.mp4,sox-pilot.json,render.log,frames.png}`.
 
+## The reviewer's verdict — REFUSED at gate 2, 2026-09-10
+
+The product owner watched the segment and declined to attest it. Recorded
+verbatim, because a control that fires is only evidence if its reasons are:
+
+> a) there is no AUDIO to follow; b) the VIDEO and the images do not seem to
+> represent anything specifically and feel highly cartoonish, not the good kind;
+> c) The little text on the screen are not in english and hence not readable to
+> make any sense. In summary, nothing in this VIDEO made me feel I was learning
+> anything.
+
+**Consequence:** no fidelity attestation exists, so `publish_draft` refuses the
+draft and no SOX lesson ships. The gate worked exactly as designed on its first
+real input.
+
+Two of those three points are distinct failures and should not be conflated:
+
+**(b) and (c) are fidelity failures — the footage does not depict the approved
+script.** This is what gate 2 is for. (c) is the hallucinated on-screen text the
+negative prompt explicitly forbade. (b) is the more damning of the two and was
+under-weighted in the original analysis, which focused on the text: the imagery
+does not depict *anything specific*, so it fails the gate's actual question
+("does this footage faithfully depict the approved script?") even setting the
+garbled text aside. A reviewer cannot attest that footage matches a script when
+the footage depicts nothing in particular.
+
+**(a) is not a render failure — it is the predicted consequence of a known gap.**
+Narration was deliberately out of scope (`local-preview` declares
+`native_audio=False`, and Veo's audio is Vertex-only), and the design's
+compensating control was that the approved script reaches the learner as text.
+That control is **built but not wired**: `course_version.transcript` is populated
+and pinned to the immutable version, and no reader surfaces it — see the
+acceptance gap in `TICKETS/VIDEO-1-pilot-lesson-videos.md`. So the learner got
+silent footage *and no words*, which is precisely what that gap predicted. The
+reviewer's experience is independent confirmation of it, from the seat that
+matters.
+
+**What this does not condemn.** The pipeline, the two gates, the attestation
+evidence and the audit trail all behaved correctly; the failure is content, not
+mechanism. The next experiment is a prompt/model one — a stronger negative
+prompt, more steps (8 is the distilled model's low end), or a different
+checkpoint — one variable at a time with the seeds held fixed. Wiring the
+transcript is a separate and probably higher-value change, since it fixes (a)
+regardless of what the imagery ever looks like.
+
 ## What was rendered
 
 | | |
