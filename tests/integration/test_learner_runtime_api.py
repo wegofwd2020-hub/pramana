@@ -157,6 +157,24 @@ async def test_watch_gate_over_http(
     assert started.status_code == 201
 
 
+async def test_player_manifest_serialises_the_transcript(
+    db: AsyncSession, sessions: async_sessionmaker[AsyncSession]
+) -> None:
+    """The transcript has to survive the response model, not just the service."""
+    transcript = "Every control has an owner."
+    seed = await seed_course(db, transcript=transcript)
+    client = _client(sessions, tenant_id=seed.tenant_id, user_id=seed.user_id)
+    staff = await _staff_client(db, sessions, tenant_id=seed.tenant_id)
+    resp = staff.post(
+        "/assignments", json={"user_id": str(seed.user_id), "course_id": str(seed.course_id)}
+    )
+    assignment_id = resp.json()["assignment_id"]
+
+    manifest = client.get(f"/assignments/{assignment_id}/player")
+    assert manifest.status_code == 200
+    assert manifest.json()["transcript"] == transcript
+
+
 async def test_verify_unknown_code_is_invalid(
     db: AsyncSession, sessions: async_sessionmaker[AsyncSession]
 ) -> None:

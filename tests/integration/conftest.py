@@ -89,6 +89,7 @@ async def seed_course(
     max_attempts: int = 2,
     cooldown_days: int = 365,
     min_watch_pct: int = 0,
+    transcript: str | None = None,
 ) -> SeededCourse:
     """Create a tenant, user, and a published course version with questions.
 
@@ -111,6 +112,7 @@ async def seed_course(
         course_id=course.id,
         version_number=1,
         min_watch_pct=min_watch_pct,
+        transcript=transcript,
         is_active=True,
     )
     session.add_all([tenant, user, course, version])
@@ -184,7 +186,7 @@ class ConsumerSetup:
     correct_options: dict[uuid.UUID, list[uuid.UUID]]
 
 
-async def consumer_setup(session: AsyncSession) -> ConsumerSetup:
+async def consumer_setup(session: AsyncSession, *, transcript: str | None = None) -> ConsumerSetup:
     """Seed the minimum consumer world for a single test.
 
     Creates (or reuses) the consumer tenant, seeds a course, creates a
@@ -204,7 +206,7 @@ async def consumer_setup(session: AsyncSession) -> ConsumerSetup:
 
     # 2. Seed a course (creates its own tenant + user internally; we only need
     #    the course + version ids from it).
-    seeded = await seed_course(session)
+    seeded = await seed_course(session, transcript=transcript)
     course = await session.get(Course, seeded.course_id)
     assert course is not None  # seed_course always creates one
 

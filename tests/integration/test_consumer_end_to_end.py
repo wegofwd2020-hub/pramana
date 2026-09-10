@@ -48,6 +48,9 @@ async def _seed_admin_user(db: AsyncSession, *, tenant: Tenant) -> User:
     return user
 
 
+E2E_TRANSCRIPT = "Every control has an owner."
+
+
 async def _seed_package_with_lesson(db: AsyncSession, *, consumer_tenant: Tenant) -> SeededPackage:
     """Seed a Package under the consumer tenant with one published course.
 
@@ -55,7 +58,7 @@ async def _seed_package_with_lesson(db: AsyncSession, *, consumer_tenant: Tenant
     with graded questions).  Inserts Package + PackageCourse under the consumer
     tenant and commits so the app's request-scoped sessions can read it.
     """
-    seeded = await seed_course(db, n_questions=2)
+    seeded = await seed_course(db, n_questions=2, transcript=E2E_TRANSCRIPT)
 
     pkg = Package(
         tenant_id=consumer_tenant.id,
@@ -171,6 +174,9 @@ async def test_grant_then_view_then_perfect_quiz(
     )
     assert resp.status_code == 201, f"POST /lessons/.../views failed: {resp.text}"
     play_session_id = resp.json()["play_session_id"]
+    # The footage is silent; the transcript is the only way the words reach the
+    # learner, so it has to survive the response model, not just the service.
+    assert resp.json()["transcript"] == E2E_TRANSCRIPT
 
     # -----------------------------------------------------------------------
     # Step 4: End the view session (watched 100%).

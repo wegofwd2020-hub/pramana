@@ -23,6 +23,7 @@ class PlaySessionManifest:
     course_version_id: uuid.UUID
     media_url: str | None
     media_kind: str
+    transcript: str | None
     min_watch_pct: int
 
 
@@ -68,6 +69,7 @@ async def start_view(
         course_version_id=version.id,
         media_url=sign_asset(version.video_asset_id),
         media_kind=media_kind,
+        transcript=version.transcript,
         min_watch_pct=version.min_watch_pct,
     )
 

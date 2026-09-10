@@ -245,6 +245,7 @@ async def get_player(
         course_version_id=m.course_version_id,
         status=m.status,
         video_url=m.video_url,
+        transcript=m.transcript,
         min_watch_pct=m.min_watch_pct,
         watched_pct=m.watched_pct,
         quiz_unlocked=m.quiz_unlocked,
