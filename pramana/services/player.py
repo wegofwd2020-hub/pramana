@@ -46,6 +46,7 @@ class PlayerManifest:
     course_version_id: uuid.UUID
     status: str
     video_url: str | None
+    transcript: str | None
     min_watch_pct: int
     watched_pct: int
     quiz_unlocked: bool
@@ -84,6 +85,7 @@ async def get_player_manifest(
         course_version_id=version.id,
         status=assignment.status,
         video_url=sign_asset(version.video_asset_id),
+        transcript=version.transcript,
         min_watch_pct=version.min_watch_pct,
         watched_pct=assignment.watched_pct,
         quiz_unlocked=assignment.watched_pct >= version.min_watch_pct,

@@ -415,6 +415,10 @@ class PlayerManifestOut(BaseModel):
     course_version_id: uuid.UUID
     status: str
     video_url: str | None
+    # The pilot renders silent footage, so the transcript is the learner's only
+    # access to the approved narration. Defaulted: versions published before
+    # migration 0012 carry none.
+    transcript: str | None = None
     min_watch_pct: int
     watched_pct: int
     quiz_unlocked: bool
@@ -649,6 +653,7 @@ class PlaySessionOut(BaseModel):
     course_version_id: uuid.UUID
     media_url: str | None
     media_kind: str
+    transcript: str | None = None
     min_watch_pct: int
 
 

@@ -141,6 +141,7 @@ async def start_view(
         course_version_id=manifest.course_version_id,
         media_url=manifest.media_url,
         media_kind=manifest.media_kind,
+        transcript=manifest.transcript,
         min_watch_pct=manifest.min_watch_pct,
     )
 

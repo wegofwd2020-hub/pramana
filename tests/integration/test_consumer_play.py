@@ -151,3 +151,35 @@ async def test_end_view_rejects_other_users_session(
         await db.execute(select(Enrollment).where(Enrollment.id == manifest.enrollment_id))
     ).scalar_one()
     assert enr.view_count == 0
+
+
+async def test_start_view_carries_the_transcript(db: AsyncSession, consumer_tenant: object) -> None:
+    """B2C learners get the words too — the footage is silent for them as well."""
+    transcript = "Every control has an owner."
+    s = await consumer_setup(db, transcript=transcript)
+    manifest = await play.start_view(
+        db,
+        tenant_id=s.tenant_id,
+        user_id=s.user.user_id,
+        course_id=s.course.id,
+        entitlement_id=s.entitlement.id,
+        media_kind="video",
+        now=now,
+    )
+    assert manifest.transcript == transcript
+
+
+async def test_start_view_transcript_is_none_when_the_version_has_none(
+    db: AsyncSession, consumer_tenant: object
+) -> None:
+    s = await consumer_setup(db)
+    manifest = await play.start_view(
+        db,
+        tenant_id=s.tenant_id,
+        user_id=s.user.user_id,
+        course_id=s.course.id,
+        entitlement_id=s.entitlement.id,
+        media_kind="video",
+        now=now,
+    )
+    assert manifest.transcript is None

@@ -243,6 +243,31 @@ class TestWatchGate:
         assert m.min_watch_pct == 50
         assert m.quiz_unlocked is False
 
+    async def test_manifest_carries_the_transcript(self, db: AsyncSession) -> None:
+        """The pilot renders silent footage: the transcript is the only words.
+
+        If the manifest drops it, the learner watches a mute video and the
+        approved narration never reaches them.
+        """
+        transcript = "Every control has an owner.\nA missing owner is a finding."
+        seed = await seed_course(db, transcript=transcript)
+        assignment_id = await _assign(db, seed)
+        m = await player_svc.get_player_manifest(
+            db, assignment_id=assignment_id, tenant_id=seed.tenant_id, acting_user_id=seed.user_id
+        )
+        assert m.transcript == transcript
+
+    async def test_manifest_transcript_is_none_when_the_version_has_none(
+        self, db: AsyncSession
+    ) -> None:
+        """Every course version published before 0012 has a null transcript."""
+        seed = await seed_course(db)
+        assignment_id = await _assign(db, seed)
+        m = await player_svc.get_player_manifest(
+            db, assignment_id=assignment_id, tenant_id=seed.tenant_id, acting_user_id=seed.user_id
+        )
+        assert m.transcript is None
+
 
 class TestGuards:
     async def test_start_attempt_is_idempotent(self, db: AsyncSession) -> None:
