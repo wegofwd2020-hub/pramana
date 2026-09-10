@@ -67,14 +67,49 @@ pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu
 pip install -e '.[render]'
 ```
 
-**Render numbers — not yet filled in.** The actual SOX-pilot render
-(duration, resolution, wall-clock time, peak memory, cost) has not completed
-as of this writing; a run was in progress on `mambakkam` when this section
-was written. `<FILL IN FROM THE ACTUAL RUN: duration_s, resolution, render
-wall-clock time, peak RSS, provider/cost>`. Do not treat the illustrative
-`docs/local-diffusion-cpu-poc.md` / §2 numbers on this ticket as the pilot's
-own measurement — those describe the local-preview validation path, not the
-pilot's actual render.
+**Render numbers — measured 2026-09-09.** Full detail, including the nine
+attempts it took and what each one taught, is in `docs/sox-video-pilot-run.md`.
+
+| | |
+|---|---|
+| geometry | 576×320, 49 frames, 8 steps, guidance 1.0 |
+| composition | 5 scenes × 2.0 s → 10.0 s segment, 148 675 bytes |
+| seconds per step | **74.9 mean** (73.9–75.4 across five scenes, 2% spread) |
+| wall clock | **98.0 min** — 5 scenes at ~19.5 min each |
+| peak memory | **~24 GB** of 31 GB; the bf16 T5 encoder alone is a ~19 GB floor |
+| provider / cost | `local-diffusion` on CPU — no vendor, no account, £0 |
+| asset hash | `sha256:c0ddc5e5044c310432fad8329a12ec4231fc18b96c27012824e9e5dd4931f13e` |
+
+Two things the numbers say that the plan did not:
+
+- **The cost model was optimistic.** The plan extrapolated 0.059 s per latent
+  token per step from the smaller row-1 geometry and predicted ~63 s/step and
+  "about an hour". Actual is 0.069 — 17% higher — and 98 minutes. Scaling is
+  *roughly* linear in latent tokens, not exactly; re-derive the constant at the
+  geometry you intend to use rather than trusting an extrapolation.
+- **Memory is a floor, not a function of geometry.** Reducing scenes or
+  resolution does not help; the encoder is what does not fit. The render needs
+  the machine substantially to itself.
+
+## THE FOOTAGE FAILED GATE 2 — the pilot's most useful result
+
+**Every one of the five scenes carries hallucinated on-screen text** — garbled
+pseudo-words, floating captions, a whiteboard of gibberish — despite the brief's
+`global_negative` naming exactly that (`"text overlays, logos, watermarks,
+distorted faces"`).
+
+A reviewer running the fidelity gate would refuse to attest this segment, and
+`publish_draft` would refuse the draft. **The control fired on its first real
+input.** Gate 2 was argued for on the hypothesis that generated video
+hallucinates on-screen text despite the negative prompt; that turned out to be
+the *dominant* failure mode, in 5 of 5 scenes. Under a "script gate only, the
+render is mechanical output" design this would have reached learners with nobody
+having watched it.
+
+**Consequence: no SOX lesson ships from this run, and this ticket stays open.**
+The failure is a prompt/model problem, not a pipeline one — the next experiment
+is a stronger negative prompt, more steps (8 is the distilled model's low end),
+or a different checkpoint, one variable at a time with the seeds held fixed.
 
 **What's left for the other frameworks.** FCPA, GDPR, HIPAA, ISO 27001, and
 PCI DSS (see "Scope" below) inherit the same two-gate model unchanged — no
