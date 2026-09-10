@@ -1,7 +1,7 @@
 """Combine the two improvements that worked, and test whether prompt alone kills the captions.
 
-Human review of ``scripts/bisect_render.py``'s output established, at guidance
-1.0 on the distilled checkpoint:
+Human review of a bisect harness's output (commit ``1d1df12``, since removed)
+established, at guidance 1.0 on the distilled checkpoint:
 
 * **30 steps** (320p) — "images of both persons look good"; the best of the set
 * **480p** (8 steps) — "much better, but there seems to be background images
@@ -50,9 +50,9 @@ from pramana.domain.video_generation import build_scene_briefs
 from scripts.render_sox_pilot import SCRIPT_LINES, sha256_bytes
 from scripts.render_variants import BASELINE_NEGATIVE, BASELINE_STYLE, DISTILLED, environment
 
-#: Same narration line the bisect used, so results are comparable across
-#: harnesses. Deliberately NOT imported from scripts.bisect_render — that lives
-#: on an unmerged branch, and this script must run from main.
+#: Same narration line the bisect harness used, so results stay comparable
+#: across harnesses. (It was defined there too; that harness has since been
+#: removed, so this is now the only copy.)
 LINE_INDEX = 2
 
 #: A prompt for the same narration line that describes **what is on screen**
