@@ -224,14 +224,14 @@ class TestTransitions:
     async def test_get_draft_not_found(self) -> None:
         session = fake_session(get=None)
         with pytest.raises(NotFoundError):
-            await cr.get_draft(session, draft_id=uuid.uuid4())
+            await cr.get_draft(session, draft_id=uuid.uuid4(), tenant_id=TENANT)
 
     async def test_archived_draft_is_not_found(self) -> None:
         draft = make_draft()
         draft.archived_at = NOW
         session = fake_session(get=draft)
         with pytest.raises(NotFoundError):
-            await cr.get_draft(session, draft_id=draft.id)
+            await cr.get_draft(session, draft_id=draft.id, tenant_id=TENANT)
 
 
 # --- publish -------------------------------------------------------------
@@ -491,3 +491,103 @@ def test_parse_status_rejects_unknown() -> None:
     with pytest.raises(InvalidStateTransitionError):
         cr.parse_status("bogus")
     assert cr.parse_status("approved") is ContentDraftStatus.APPROVED
+
+
+# --- tenant isolation ----------------------------------------------------
+OTHER_TENANT = uuid.uuid4()
+
+
+class TestDraftsAreScopedToTheirTenant:
+    """Every draft-loading operation must refuse a draft from another tenant.
+
+    `_load` filtered `archived_at` but not `tenant_id`, so any caller holding a
+    draft id could act on another tenant's draft — read it, approve it, publish
+    it. The enclosing functions all took a `tenant_id` and never used it for the
+    lookup.
+
+    The refusal is `NotFoundError`, not a forbidden error, and carries no tenant
+    in its context: a cross-tenant probe must be indistinguishable from a
+    genuine miss, or the difference leaks which draft ids exist.
+    """
+
+    def _foreign(self) -> ContentDraft:
+        """A draft that belongs to somebody else."""
+        return make_draft("in_review", tenant_id=OTHER_TENANT)
+
+    async def test_get_draft_refuses_another_tenants_draft(self) -> None:
+        draft = self._foreign()
+        with pytest.raises(NotFoundError):
+            await cr.get_draft(fake_session(get=draft), draft_id=draft.id, tenant_id=TENANT)
+
+    async def test_submit_for_review_refuses_another_tenants_draft(self) -> None:
+        draft = make_draft("draft", tenant_id=OTHER_TENANT)
+        with pytest.raises(NotFoundError):
+            await cr.submit_for_review(
+                fake_session(get=draft),
+                draft_id=draft.id,
+                tenant_id=TENANT,
+                actor_user_id=uuid.uuid4(),
+                now=NOW,
+            )
+
+    async def test_approve_draft_refuses_another_tenants_draft(self) -> None:
+        draft = self._foreign()
+        with pytest.raises(NotFoundError):
+            await cr.approve_draft(
+                fake_session(get=draft),
+                draft_id=draft.id,
+                tenant_id=TENANT,
+                approver_user_id=uuid.uuid4(),
+                attestation_text="ok",
+                now=NOW,
+            )
+
+    async def test_request_changes_refuses_another_tenants_draft(self) -> None:
+        draft = self._foreign()
+        with pytest.raises(NotFoundError):
+            await cr.request_changes(
+                fake_session(get=draft),
+                draft_id=draft.id,
+                tenant_id=TENANT,
+                actor_user_id=uuid.uuid4(),
+                notes="not yours",
+                now=NOW,
+            )
+
+    async def test_reject_draft_refuses_another_tenants_draft(self) -> None:
+        draft = self._foreign()
+        with pytest.raises(NotFoundError):
+            await cr.reject_draft(
+                fake_session(get=draft),
+                draft_id=draft.id,
+                tenant_id=TENANT,
+                actor_user_id=uuid.uuid4(),
+                notes="not yours",
+                now=NOW,
+            )
+
+    async def test_publish_draft_refuses_another_tenants_draft(self) -> None:
+        draft = make_draft("approved", tenant_id=OTHER_TENANT)
+        with pytest.raises(NotFoundError):
+            await cr.publish_draft(
+                fake_session(get=draft),
+                draft_id=draft.id,
+                tenant_id=TENANT,
+                publisher_user_id=uuid.uuid4(),
+                now=NOW,
+            )
+
+    async def test_the_refusal_does_not_leak_the_tenant(self) -> None:
+        """A cross-tenant probe must look exactly like a genuine miss."""
+        draft = self._foreign()
+        with pytest.raises(NotFoundError) as ei:
+            await cr.get_draft(fake_session(get=draft), draft_id=draft.id, tenant_id=TENANT)
+        rendered = f"{ei.value.message} {ei.value.context}"
+        assert str(OTHER_TENANT) not in rendered
+        assert str(TENANT) not in rendered
+
+    async def test_the_same_tenant_still_works(self) -> None:
+        """The filter must not break the ordinary path."""
+        draft = make_draft("in_review")
+        got = await cr.get_draft(fake_session(get=draft), draft_id=draft.id, tenant_id=TENANT)
+        assert got is draft

@@ -331,7 +331,9 @@ class _DbContentReviewService:
         )
 
     async def get_draft(self, draft_id: uuid.UUID) -> ContentDraft:
-        return await content_review.get_draft(self._s, draft_id=draft_id)
+        return await content_review.get_draft(
+            self._s, draft_id=draft_id, tenant_id=self._p.tenant_id
+        )
 
     async def submit_for_review(self, draft_id: uuid.UUID) -> ContentDraft:
         return await content_review.submit_for_review(
