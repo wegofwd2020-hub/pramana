@@ -299,6 +299,15 @@ The other two traced to `guidance = 1.0`, which means classifier-free guidance i
 negative prompt has no force, because a negative only acts through CFG. So
 `_DEFAULT_NEGATIVE`'s `"no on-screen text artifacts"` never suppressed anything.
 
+**What the text actually is.** Extracted frames show it is not background
+texture but **burned-in subtitles** — three centred lines exactly where captions
+sit. The prompt `f"a compliance presenter explains: {line}"` summons stock
+corporate-training footage, which overwhelmingly ships with captions burned in;
+the model reproduces the look and, unable to spell, emits letterform-shaped
+marks. It appears in every successfully rendered frame, so the prompt is
+actively summoning it. That makes this a **prompt problem as well as a CFG one**,
+and the prompt half is fixable today.
+
 Note this makes the spec's stated justification for gate 2 right for the wrong
 reason. `docs/superpowers/specs/2026-09-09-sox-video-pilot-design.md` says the
 gate catches "hallucinated on-screen text **despite** the negative prompt". The
@@ -309,14 +318,30 @@ negative prompt was never in effect.
 Measured on rented GPUs (RTX 4090 and RTX 3090), one variable at a time, same
 seed, same scene, via `scripts/bisect_render.py`:
 
-| transformer | guidance 1.0 | guidance 3.0 |
+| run | config | frame |
 |---|---|---|
-| `ltxv-2b-0.9.8-distilled` | 43,481 B — image | 23,743 B — grey |
-| repo transformer | 74,845 B — image | 8,553 B — grey |
+| control | distilled, 8 steps, g=1.0 | two people at a table ✓ |
+| steps | distilled, **30 steps**, g=1.0 | **best of the set** ✓ |
+| dtype / res | bfloat16 / 864x480 | ≈ control ✓ |
+| guidance | distilled, **g=3.0** | blown out to a white card ✗ |
+| repo | repo transformer, 8 steps, g=1.0 | washed-out smear ✗ |
+| repo_g3 | repo transformer, 8 steps, g=3.0 | blank white ✗ |
 
-**Any guidance above 1.0 renders uniform grey on both checkpoints.** Ruled out
-individually and each fine: bfloat16 (42,775 B), 864x480 (82,441 B), 30 steps
-(46,789 B), the non-distilled transformer at guidance 1.0 (74,845 B).
+**Guidance above 1.0 destroys the render on the distilled checkpoint** — the
+control is a good image at the identical configuration with only guidance
+changed, so the attribution is clean. Precision, resolution and step count were
+each ruled out individually.
+
+The repo (non-distilled) checkpoint failed at both guidance values, but every
+repo run used **8 steps** — the distilled model's operating point, not its own
+(~30-50). Those runs are misconfigured and establish nothing either way.
+
+> **An earlier version of this section claimed both checkpoints fail at
+> guidance > 1.0.** That came from comparing output file sizes: `repo.mp4` was
+> 74,845 B against the control's 43,481 B and was recorded as "renders fine".
+> The frame is a smear with no subject. Byte size tracks entropy, not
+> correctness — a noisy smear compresses worse than a clean image. Corrected
+> once the frames were extracted and viewed.
 
 Filed upstream as **wegofwd-video#6**.
 
@@ -332,8 +357,13 @@ result: the control works, and it stopped unusable footage reaching a learner.
 
 ### Options when #6 is fixed
 
-1. Re-run the ladder with CFG actually working, and see whether the imagery and
-   the text artifacts both resolve. Cheap: ~$0.40 of rented GPU.
+0. **Available now, no fix needed:** `steps=30` on the distilled model at
+   guidance 1.0 produced the best image of the entire set, at no cost but render
+   time. And rewriting the prompt away from "presenter explains" should reduce
+   the caption artifacts independently of CFG.
+1. Validate the repo checkpoint properly — 30 steps at g=1.0 and at g=3.0. Two
+   runs, ~$0.50, and they decide whether wegofwd-video#6 is a real CFG defect or
+   just "never apply CFG to a distilled checkpoint".
 2. If quality is still short, the next lever is a larger model (13B, a different
    repo) — not more prompt engineering.
 3. If generated video cannot clear gate 2 even with CFG, that is a legitimate
