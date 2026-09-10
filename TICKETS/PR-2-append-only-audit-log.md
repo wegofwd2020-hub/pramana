@@ -45,6 +45,28 @@ Added:
 Verified end to end against a real database: dropped the append-only trigger,
 edited one row, and the script named the row and both hashes and exited 1.
 
+## Verified in production 2026-09-10
+
+`verify_audit.py` had never been run against the real database. It has now, on
+the box, at deployed commit `2460956`:
+
+```
+  ok  row chain: 2 row(s), unbroken
+  --    archive: nothing archived yet
+  --    2 row(s) pending archival (archived through 0)
+
+  evidence intact                                            EXIT=0
+```
+
+So the operational half of this ticket is proven end to end where it matters:
+the tool ships in the running image, reads the production chain, and reports
+honestly — including that the archive is empty rather than pretending otherwise.
+`archive_audit.py --status` agrees: *archived through audit_id 0; 2 row(s)
+pending*.
+
+That is the strongest statement available while the archive is unconfigured, and
+it is worth having: the row chain is intact, and the gap is known and named.
+
 ## Not closed
 
 **WORM archival has never run in production.** Checked on the box:
@@ -59,3 +81,27 @@ Closing this needs, in order:
 2. Those settings in `.env.deploy`, then recreate `api`.
 3. `make archive-audit` on a schedule, and `make verify-audit --strict-archive`
    alongside it so a silent stop is noticed.
+
+**Step 1 was put to the product owner on 2026-09-10 and deliberately deferred.**
+No bucket is being provisioned yet, so this ticket stays open with the archive
+protecting nothing — stated plainly rather than left implicit.
+
+The provider choice is a real constraint, not a preference, because
+`services/storage.py:107` writes `ObjectLockMode="COMPLIANCE"` with a
+7-year `ObjectLockRetainUntilDate`. `COMPLIANCE` is deliberate: under
+`GOVERNANCE` a sufficiently privileged principal can delete anyway, which
+defeats the control. Options weighed:
+
+- **AWS S3** — the only one with first-class, well-tested Object Lock COMPLIANCE
+  support and a legal-hold story auditors recognise. Pennies at this volume.
+- **Hetzner Object Storage** — already the box's provider, but its S3
+  compatibility does not reliably cover Object Lock COMPLIANCE. If it does not,
+  `put_object` fails and archival silently cannot run, which is worse than not
+  having it. Verify before committing.
+- **MinIO on the box** — supports Object Lock, but would put the archive on the
+  same disk as the database it exists to outlive. Useful only as a local test of
+  the archive path.
+
+Note the irreversibility: in COMPLIANCE mode not even the account root can delete
+an object before its retention expires. That is the point, and it is also why the
+bucket should be created deliberately and named unambiguously.
