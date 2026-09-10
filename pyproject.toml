@@ -89,12 +89,24 @@ dev = [
 # is a compliance requirement, not tidiness.
 #
 # - wegofwd-video's own [local] extra declares "transformers>=4.56" with no
-#   upper bound. transformers==5.17.0 SIGILLs mid-encode on the CPU this was
-#   verified on (an Ivy Bridge box lacking the newer instruction the 5.17
-#   kernels assume); transformers==5.16.1 is the last version confirmed to
-#   run. Pin it here, explicitly, with this comment — an unexplained pin is
-#   exactly the kind of thing the next person "helpfully" bumps back to
-#   "latest".
+#   upper bound. The pin here is transformers==5.16.1 because that is the
+#   version the 98-minute pilot render actually completed on — it pins a
+#   KNOWN-GOOD combination, which is what a reproducibility claim needs.
+#
+#   It does NOT mean 5.17.0 is known-broken. An earlier version of this
+#   comment said exactly that, on the strength of one render that crashed
+#   with 5.17.0 and one that succeeded with 5.16.1. That was one sample of
+#   each, and 5.16.1 has since produced a SIGILL of its own. The real
+#   observation is that torch's CPU kernels intermittently execute an
+#   unsupported instruction on this pre-AVX2 host (i5-3570K: AVX yes, AVX2
+#   no, FMA no) — the core dump's stack sits in libtorch_cpu.so on an
+#   OpenMP worker thread, while torch's own dispatch already reports
+#   cpu capability DEFAULT. Roughly 1 run in 5. See the SIGILL section of
+#   wegofwd-video's docs/local-diffusion-cpu-poc.md.
+#
+#   So: keep the pin (it reproduces a run that worked), do not treat it as
+#   a fix for the SIGILL, and do not bump it casually — but if you do bump
+#   it, the thing to re-verify is a full render, not an import.
 # - torch itself MUST be installed from the CPU wheel index, not PyPI's
 #   default (which resolves the multi-GB CUDA build). An extra cannot express
 #   an index URL, so this pin (matched against either index by PEP 440's
