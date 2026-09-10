@@ -91,6 +91,31 @@ Two things the numbers say that the plan did not:
   resolution does not help; the encoder is what does not fit. The render needs
   the machine substantially to itself.
 
+## GATE 2 REFUSED, 2026-09-10 — by a human, not by a heuristic
+
+The product owner watched the segment and declined to attest it:
+
+> a) there is no AUDIO to follow; b) the VIDEO and the images do not seem to
+> represent anything specifically and feel highly cartoonish, not the good kind;
+> c) The little text on the screen are not in english and hence not readable to
+> make any sense. In summary, nothing in this VIDEO made me feel I was learning
+> anything.
+
+**No attestation exists, so `publish_draft` refuses the draft. No SOX lesson
+ships.** Full analysis in `docs/sox-video-pilot-run.md`.
+
+Point **(b)** deserves emphasis because the original analysis under-weighted it:
+the imagery does not depict *anything specific*. That fails gate 2's actual
+question independently of the garbled text — a reviewer cannot attest that
+footage matches a script when the footage depicts nothing in particular.
+
+Point **(a)** is not a render failure. Narration was deliberately out of scope,
+and the compensating control was the transcript reaching the learner as text —
+which is the acceptance gap recorded below, built but not wired. The reviewer
+hitting it confirms that gap from the seat that matters, and makes wiring the
+transcript the higher-value next change: it fixes (a) regardless of what the
+imagery ever looks like.
+
 ## THE FOOTAGE FAILED GATE 2 — the pilot's most useful result
 
 **Every one of the five scenes carries hallucinated on-screen text** — garbled
