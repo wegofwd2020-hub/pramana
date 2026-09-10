@@ -146,8 +146,24 @@ PYTHONPATH="$PRAMANA_DIR" python -c \
 # ---------------------------------------------------------------------------
 say weights "$HF_HOME"
 
+# HF rate-limits anonymous downloads per source IP, and RunPod hosts share
+# egress addresses — so a pod can land already throttled by other tenants,
+# with nothing you did. Observed 2026-09-10: five attempts over five minutes
+# all returned 429 on a fresh pod, while the same request from a home
+# connection returned 200. Set HF_TOKEN (read scope is enough) to lift it;
+# authenticated limits are far higher and follow the account, not the IP.
+if [ -n "${HF_TOKEN:-}" ]; then
+    echo "  HF_TOKEN set — authenticated download (higher rate limits)"
+else
+    echo "  WARNING: no HF_TOKEN. Anonymous downloads are rate-limited per IP" >&2
+    echo "           and RunPod IPs are shared. If this 429s, run on the pod:" >&2
+    echo "             huggingface-cli login" >&2
+fi
+
 python - <<'PY'
 import os
+import time
+
 from huggingface_hub import hf_hub_download, snapshot_download
 
 from wegofwd_video.providers.local_diffusion import (
@@ -156,11 +172,28 @@ from wegofwd_video.providers.local_diffusion import (
     DEFAULT_TRANSFORMER_REPO,
 )
 
-print(f"  pipeline repo:   {DEFAULT_MODEL}")
-snapshot_download(DEFAULT_MODEL)
-print(f"  distilled 2B:    {DEFAULT_TRANSFORMER_REPO}/{DEFAULT_TRANSFORMER_FILE}")
-hf_hub_download(DEFAULT_TRANSFORMER_REPO, DEFAULT_TRANSFORMER_FILE)
-print(f"  cache: {os.environ.get('HF_HOME')}")
+# Retry with backoff: a 429 is often transient, but a shared-IP throttle can
+# persist. Fail loudly rather than leaving a half-populated cache that only
+# explodes an hour later inside the first render.
+for attempt in range(1, 6):
+    try:
+        print(f"  pipeline repo:   {DEFAULT_MODEL}")
+        snapshot_download(DEFAULT_MODEL)
+        print(f"  distilled 2B:    {DEFAULT_TRANSFORMER_REPO}/{DEFAULT_TRANSFORMER_FILE}")
+        hf_hub_download(DEFAULT_TRANSFORMER_REPO, DEFAULT_TRANSFORMER_FILE)
+        print(f"  cache: {os.environ.get('HF_HOME')}")
+        break
+    except Exception as exc:
+        detail = str(exc)[:160].replace("\n", " ")
+        print(f"  attempt {attempt}/5 failed: {type(exc).__name__}: {detail}")
+        if attempt == 5:
+            raise SystemExit(
+                "FATAL: could not fetch weights after 5 attempts.\n"
+                "If these are 429s, the pod's IP is rate-limited by HuggingFace.\n"
+                "Either set HF_TOKEN and re-run, or terminate and redeploy to\n"
+                "land on a different host."
+            )
+        time.sleep(30 * attempt)
 PY
 
 du -sh "$HF_HOME"
