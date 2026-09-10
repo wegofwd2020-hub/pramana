@@ -373,7 +373,9 @@ negative prompt was never in effect.
 ### Why raising guidance does not fix it
 
 Measured on rented GPUs (RTX 4090 and RTX 3090), one variable at a time, same
-seed, same scene, via `scripts/bisect_render.py`:
+seed, same scene, via a bisect harness (commit `1d1df12`, since removed — it
+changed one variable from a control tuned for the distilled checkpoint, so it
+could not fairly test the other one):
 
 | run | config | frame |
 |---|---|---|
@@ -431,5 +433,7 @@ result: the control works, and it stopped unusable footage reaching a learner.
 
 - `~/Downloads/sox-variants/` — 3 clips + `results.json` (first ladder)
 - `~/Downloads/sox-bisect/` — 7 clips + `bisect.json` (the 2x2)
-- `scripts/render_variants.py` (PR #44, merged), `scripts/bisect_render.py`
-  (branch `fix/bisect-render`)
+- `scripts/render_variants.py` (PR #44), `scripts/combine_render.py` and
+  `scripts/render_scene_segment.py` (PR #47). The bisect harness that produced
+  the 2x2 was commit `1d1df12`, since removed; its findings are recorded above
+  and need no re-run.
