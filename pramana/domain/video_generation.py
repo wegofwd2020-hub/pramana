@@ -41,24 +41,50 @@ from pramana.exceptions import ValidationError
 
 # Version of THIS generator's brief + body contract. Bump on a material change so
 # a draft's provenance records which generator produced its video (drift detection).
-VIDEO_PROMPT_VERSION = "pramana-video-2026-06"
+VIDEO_PROMPT_VERSION = "pramana-video-2026-09"
 
 # gen_engine for the video stage (the asset is produced via wegofwd-video, but the
 # in-house orchestration that built the brief is Pramana's — mirrors quiz GEN_ENGINE).
 GEN_ENGINE = "pramana"
 
-# Compliance house style — neutral, text/logo-free, professional narration. These
-# are deliberately conservative; an author can override per call.
-_DEFAULT_STYLE = "clean corporate explainer, flat illustration, neutral palette"
+# Compliance house style. Photographic, not illustrated: the previous default
+# said "flat illustration", and the first pilot review called the result
+# "highly cartoonish" — that was the style doing exactly what it was asked,
+# which is why it is a house-style decision rather than a defect to fix
+# elsewhere. Rendered footage under this style cleared review.
+_DEFAULT_STYLE = (
+    "restrained corporate documentary photography, muted neutral palette, "
+    "natural window light, shallow depth of field"
+)
 _DEFAULT_NEGATIVE = "no on-screen text artifacts, no logos, no real faces, no flashing"
 _DEFAULT_AUDIO = "clear neutral narrator, professional pace, light ambient office tone"
 _DEFAULT_SHOT_DURATION_S = 6.0
+
+#: Visual prompt used when the author supplies no ``scene_prompts``.
+#:
+#: It deliberately says nothing about a presenter, an explainer, or training
+#: video, and it does not include the narration text. The previous default was
+#: ``f"a compliance presenter explains: {line}"``, which describes *stock
+#: corporate training footage* — a genre that ships with burned-in captions. The
+#: model reproduced the look and, unable to spell, drew letterform-shaped marks
+#: in a caption bar. A reviewer refused the resulting footage for exactly that
+#: ("the little text on the screen are not in english"), and removing the genre
+#: cue removed the captions.
+#:
+#: This fallback is deliberately generic, and generic is the point: it is safe
+#: rather than good. Every scene rendered from it looks alike, because a
+#: narration line is a *claim* and not a picture. Good footage needs
+#: ``scene_prompts`` written by whoever wrote the script.
+_FALLBACK_SHOT_PROMPT = (
+    "a quiet workplace interior, papers and a desk, no one addressing the camera"
+)
 
 
 def build_video_brief(
     *,
     clause_title: str,
     narration_lines: Sequence[str],
+    scene_prompts: Sequence[str] | None = None,
     style: str = _DEFAULT_STYLE,
     negative: str = _DEFAULT_NEGATIVE,
     audio_direction: str = _DEFAULT_AUDIO,
@@ -67,15 +93,49 @@ def build_video_brief(
 ) -> VideoBrief:
     """Build a :class:`wegofwd_video.VideoBrief` from a clause's narration lines.
 
-    One shot per narration line, in order — the line is the spoken ``dialogue``
-    (drives native audio) and seeds a neutral visual ``prompt``. The brief carries
-    only what the model needs; it invents no content beyond the lines supplied.
+    One shot per narration line, in order. The line is always the spoken
+    ``dialogue`` (it drives native audio, and it records which claim a scene
+    belongs to even on silent paths). What the shot *looks* like comes from
+    ``scene_prompts`` when supplied, and from a deliberately generic fallback
+    when not.
+
+    **Supply ``scene_prompts``.** A narration line is a claim, not a picture:
+    "a missing owner is itself a finding" describes nothing a camera could see.
+    Prompts written alongside the script produce footage that cleared human
+    review; the fallback produces footage that is merely safe.
+
+    A scene prompt should describe its *subject*, not restate its line. The
+    footage is B-roll and asserts no statute — the claims live in the transcript,
+    which the accuracy gate approves and the learner reads.
+
+    Args:
+        scene_prompts: Visual descriptions, one per entry in ``narration_lines``
+            and in the same order. Blank narration lines are dropped along with
+            their prompt, so correspondence survives filtering.
 
     Raises:
-        ValidationError: ``narration_lines`` is empty (nothing to narrate).
+        ValidationError: ``narration_lines`` is empty (nothing to narrate), or
+            ``scene_prompts`` is supplied at a different length (which would
+            silently pair a scene with the wrong claim).
     """
-    lines = [line.strip() for line in narration_lines if line and line.strip()]
-    if not lines:
+    if scene_prompts is not None and len(scene_prompts) != len(narration_lines):
+        raise ValidationError(
+            "scene_prompts must have one entry per narration line, in the same order; "
+            f"got {len(scene_prompts)} prompts for {len(narration_lines)} lines",
+            context={"clause_title": clause_title},
+        )
+    # Pair BEFORE filtering, so dropping a blank line drops its prompt with it.
+    # Filtering the two sequences separately would silently shift every prompt
+    # after the blank onto the wrong claim — a defect with no visible symptom.
+    prompts: Sequence[str | None] = (
+        scene_prompts if scene_prompts is not None else [None] * len(narration_lines)
+    )
+    # strict=True: lengths are validated above, so a mismatch here would be an
+    # internal bug — and pairing silently is exactly how a scene ends up
+    # illustrating the wrong claim.
+    paired = list(zip(narration_lines, prompts, strict=True))
+    kept = [(line.strip(), prompt) for line, prompt in paired if line and line.strip()]
+    if not kept:
         raise ValidationError(
             "cannot build a video brief with no narration",
             context={"clause_title": clause_title},
@@ -83,14 +143,18 @@ def build_video_brief(
     shots = tuple(
         Shot(
             scene_index=i + 1,
-            prompt=f"a compliance presenter explains: {line}",
-            shot_type="medium",
-            camera_move="static",
-            lighting="even office light",
+            prompt=prompt if prompt else _FALLBACK_SHOT_PROMPT,
+            # The framing triple is left off an authored scene prompt: it was
+            # empty in the configuration that cleared review, and "medium /
+            # static / even office light" fights a description that already
+            # states its own framing.
+            shot_type="" if prompt else "medium",
+            camera_move="" if prompt else "static",
+            lighting="" if prompt else "even office light",
             dialogue=line,
             duration_s=shot_duration_s,
         )
-        for i, line in enumerate(lines)
+        for i, (line, prompt) in enumerate(kept)
     )
     return VideoBrief(
         global_style=style,
@@ -112,6 +176,7 @@ def build_scene_briefs(
     *,
     clause_title: str,
     narration_lines: Sequence[str],
+    scene_prompts: Sequence[str] | None = None,
     shot_duration_s: float = _LOCAL_SHOT_DURATION_S,
     style: str = _DEFAULT_STYLE,
     negative: str = _DEFAULT_NEGATIVE,
@@ -132,17 +197,34 @@ def build_scene_briefs(
     # build_video_brief raises ValidationError on empty narration, so a blank
     # line would abort the whole composition rather than being skipped. Filter
     # first — the same normalisation build_video_brief applies internally.
-    lines = [line.strip() for line in narration_lines if line and line.strip()]
+    if scene_prompts is not None and len(scene_prompts) != len(narration_lines):
+        raise ValidationError(
+            "scene_prompts must have one entry per narration line, in the same order; "
+            f"got {len(scene_prompts)} prompts for {len(narration_lines)} lines",
+            context={"clause_title": clause_title},
+        )
+    # Paired before filtering for the same reason as build_video_brief: a blank
+    # line must take its prompt with it, or every later scene illustrates the
+    # wrong claim.
+    prompts: Sequence[str | None] = (
+        scene_prompts if scene_prompts is not None else [None] * len(narration_lines)
+    )
+    # strict=True: lengths are validated above, so a mismatch here would be an
+    # internal bug — and pairing silently is exactly how a scene ends up
+    # illustrating the wrong claim.
+    paired = list(zip(narration_lines, prompts, strict=True))
+    kept = [(line.strip(), prompt) for line, prompt in paired if line and line.strip()]
     return [
         build_video_brief(
             clause_title=clause_title,
             narration_lines=[line],
+            scene_prompts=[prompt] if prompt is not None else None,
             style=style,
             negative=negative,
             audio_direction=audio_direction,
             shot_duration_s=shot_duration_s,
         )
-        for line in lines
+        for line, prompt in kept
     ]
 
 
