@@ -19,6 +19,8 @@ The ``video`` body contract::
     {
         "asset_ref": "video/<course>/<draft>.mp4",  # S3 key (caller-stored)
         "min_watch_pct": 0,  # watch-gate before the quiz
+        "transcript": "...",  # approved narration, verbatim — the only text a
+        # learner gets, since the footage is silent
         "provenance": {...},  # wegofwd_video.provenance()
         "duration_s": 12,
         "resolution": "1080p",
@@ -99,6 +101,51 @@ def build_video_brief(
     )
 
 
+#: One scene per narration line at this length keeps a five-line segment inside
+#: the local-preview role's ``max_duration_s = 10`` and each render near the
+#: measured 1 080 latent tokens. The module default of 6.0 s targets the Veo
+#: path, where the ceiling is higher.
+_LOCAL_SHOT_DURATION_S = 2.0
+
+
+def build_scene_briefs(
+    *,
+    clause_title: str,
+    narration_lines: Sequence[str],
+    shot_duration_s: float = _LOCAL_SHOT_DURATION_S,
+    style: str = _DEFAULT_STYLE,
+    negative: str = _DEFAULT_NEGATIVE,
+    audio_direction: str = _DEFAULT_AUDIO,
+) -> list[VideoBrief]:
+    """Split a lesson into one single-shot brief per narration line.
+
+    The local provider joins a multi-shot brief's shots into a single prompt and
+    sums their durations for one render, so a five-shot brief produces one clip
+    rather than five scenes. Issuing one brief per line and concatenating the
+    results is what actually yields scene cuts — and it keeps each render's
+    latent-token count, and therefore its peak memory, near the measured figure
+    instead of multiplying it by the scene count.
+
+    Returns:
+        One brief per line, in order. Empty input yields an empty list.
+    """
+    # build_video_brief raises ValidationError on empty narration, so a blank
+    # line would abort the whole composition rather than being skipped. Filter
+    # first — the same normalisation build_video_brief applies internally.
+    lines = [line.strip() for line in narration_lines if line and line.strip()]
+    return [
+        build_video_brief(
+            clause_title=clause_title,
+            narration_lines=[line],
+            style=style,
+            negative=negative,
+            audio_direction=audio_direction,
+            shot_duration_s=shot_duration_s,
+        )
+        for line in lines
+    ]
+
+
 def video_to_body_patch(
     result: VideoResult,
     *,
@@ -138,6 +185,7 @@ class MaterializedVideo:
 
     asset_ref: str
     min_watch_pct: int
+    transcript: str | None = None
 
 
 def materialize_video(body: Mapping[str, Any]) -> MaterializedVideo | None:
@@ -173,4 +221,15 @@ def materialize_video(body: Mapping[str, Any]) -> MaterializedVideo | None:
             "body.video.min_watch_pct must be an integer in [0, 100]",
             context={"field": "body.video.min_watch_pct", "value": raw_pct},
         )
-    return MaterializedVideo(asset_ref=asset_ref, min_watch_pct=raw_pct)
+    raw_transcript = video.get("transcript")
+    if raw_transcript is not None and not isinstance(raw_transcript, str):
+        raise ValidationError(
+            "draft body.video.transcript must be a string",
+            context={"field": "body.video.transcript"},
+        )
+    # Blank is the same as absent: a whitespace-only transcript would render as
+    # an empty panel that looks like a bug rather than an intentional silence.
+    transcript = raw_transcript.strip() if raw_transcript else None
+    return MaterializedVideo(
+        asset_ref=asset_ref, min_watch_pct=raw_pct, transcript=transcript or None
+    )

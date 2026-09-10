@@ -51,7 +51,7 @@ dependencies = [
     # video to accompany a course quiz through the shared provider library.
     # Library, not a service — runs in-process; managed key passed per call. The
     # core seam has no runtime deps; the Veo SDK is the optional [veo] extra.
-    "wegofwd-video @ git+https://github.com/wegofwd2020-hub/wegofwd-video@v1.0.0",
+    "wegofwd-video @ git+https://github.com/wegofwd2020-hub/wegofwd-video@v1.1.0",
     # Object storage
     "boto3>=1.35.0",
     # PDF generation (for certificates, used in later phases)
@@ -81,6 +81,32 @@ dev = [
     "pre-commit>=4.0.0",
     # Security scanning
     "bandit>=1.7.10",
+]
+# Local video rendering (scripts/render_sox_pilot.py, ADR-026's local-preview
+# role). This is the *reproducibility* environment, not just a dependency
+# list: the spec's argument for rendering locally at all is "deterministic by
+# seed; same seed and same torch build reproduce the frames" — so pinning it
+# is a compliance requirement, not tidiness.
+#
+# - wegofwd-video's own [local] extra declares "transformers>=4.56" with no
+#   upper bound. transformers==5.17.0 SIGILLs mid-encode on the CPU this was
+#   verified on (an Ivy Bridge box lacking the newer instruction the 5.17
+#   kernels assume); transformers==5.16.1 is the last version confirmed to
+#   run. Pin it here, explicitly, with this comment — an unexplained pin is
+#   exactly the kind of thing the next person "helpfully" bumps back to
+#   "latest".
+# - torch itself MUST be installed from the CPU wheel index, not PyPI's
+#   default (which resolves the multi-GB CUDA build). An extra cannot express
+#   an index URL, so this pin (matched against either index by PEP 440's
+#   local-version-agnostic equality) is necessary but not sufficient — the
+#   CPU index has to be passed explicitly at install time:
+#     pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu
+#     pip install -e '.[render]'
+#   This is also recorded in TICKETS/VIDEO-1-pilot-lesson-videos.md.
+render = [
+    "wegofwd-video[local] @ git+https://github.com/wegofwd2020-hub/wegofwd-video@v1.1.0",
+    "transformers==5.16.1",
+    "torch==2.14.0",
 ]
 
 [project.urls]

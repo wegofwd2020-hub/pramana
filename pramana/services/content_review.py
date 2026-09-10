@@ -46,6 +46,13 @@ def _snapshot(draft: ContentDraft) -> ca.ContentDraftSnapshot:
         approved_at=draft.approved_at,
         content_hash=draft.content_hash,
         published_course_version_id=draft.published_course_version_id,
+        # Presence only — deliberately not materialize_video, which raises on a
+        # malformed block and would then fail every read path. publish_draft
+        # validates the block separately, which is where a malformed one belongs.
+        has_video=bool((draft.body or {}).get("video")),
+        video_asset_hash=draft.video_asset_hash,
+        video_attested_by_user_id=draft.video_attested_by_user_id,
+        video_attested_at=draft.video_attested_at,
     )
 
 
@@ -231,6 +238,57 @@ async def approve_draft(
     return draft
 
 
+async def attest_draft_video(
+    session: AsyncSession,
+    *,
+    draft_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
+    video_asset_hash: str,
+    attestation_text: str,
+    now: datetime,
+) -> ContentDraft:
+    """Record that a human watched the rendered footage and vouched for it.
+
+    Separate from :func:`approve_draft` because it answers a separate question.
+    Approval is about whether the script is accurate; this is about whether the
+    footage depicts it. The draft's status does not move — it is already
+    ``APPROVED`` — but publish will refuse without this.
+
+    Raises:
+        NotFoundError: ``draft_id`` is not in this tenant.
+        InvalidStateTransitionError: Draft is not ``APPROVED``, or carries no video.
+        SeparationOfDutiesError: The attester generated the draft.
+    """
+    draft = await session.get(ContentDraft, draft_id)
+    if draft is None or draft.tenant_id != tenant_id:
+        raise NotFoundError(
+            "content draft not found in tenant",
+            context={"draft_id": str(draft_id), "tenant_id": str(tenant_id)},
+        )
+
+    new = ca.attest_video(
+        _snapshot(draft),
+        attester_user_id=actor_user_id,
+        video_asset_hash=video_asset_hash,
+        now=now,
+    )
+    draft.video_attested_by_user_id = new.video_attested_by_user_id
+    draft.video_attested_at = new.video_attested_at
+    draft.video_asset_hash = new.video_asset_hash
+    draft.video_attestation_text = attestation_text
+
+    await _audit(
+        session,
+        draft,
+        ContentEvent.ATTEST_VIDEO,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        now=now,
+    )
+    return draft
+
+
 async def request_changes(
     session: AsyncSession,
     *,
@@ -339,6 +397,7 @@ async def publish_draft(
         is_material_change=is_material_change,
         video_asset_id=video.asset_ref if video else None,
         min_watch_pct=video.min_watch_pct if video else 0,
+        transcript=video.transcript if video else None,
     )
     session.add(course_version)
     for spec in quiz.questions:

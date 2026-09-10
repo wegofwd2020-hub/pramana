@@ -59,6 +59,12 @@ class ContentDraftSnapshot:
         content_hash: Hash of the exact approved content body — set iff approved.
         published_course_version_id: The immutable ``CourseVersion`` this draft
             materialised into — set iff ``PUBLISHED``.
+        has_video: Whether the draft body carries a video block. A video is
+            attached while the draft is still ``DRAFT``, so this is true well
+            before the fidelity attestation exists.
+        video_asset_hash: Hash of the exact rendered bytes attested to.
+        video_attested_by_user_id: Who attested the footage — set iff attested.
+        video_attested_at: When the footage was attested — set iff attested.
     """
 
     status: ContentDraftStatus
@@ -68,6 +74,10 @@ class ContentDraftSnapshot:
     approved_at: datetime | None = None
     content_hash: str | None = None
     published_course_version_id: uuid.UUID | None = None
+    has_video: bool = False
+    video_asset_hash: str | None = None
+    video_attested_by_user_id: uuid.UUID | None = None
+    video_attested_at: datetime | None = None
 
     def __post_init__(self) -> None:
         approved = self.status.is_approved  # APPROVED or PUBLISHED
@@ -107,6 +117,24 @@ class ContentDraftSnapshot:
             raise ValueError(
                 f"status {self.status.value!r} requires content but has_content is False"
             )
+
+        # The fidelity attestation is a pair, like the approval one.
+        if (self.video_attested_by_user_id is None) != (self.video_attested_at is None):
+            raise ValueError("video_attested_by_user_id and video_attested_at must be set together")
+        # An attestation that names no artefact attests to nothing.
+        if self.video_attested_at is not None and not self.video_asset_hash:
+            raise ValueError("a video attestation requires video_asset_hash")
+
+        # A published draft carrying footage nobody attested is a state the
+        # system must never hold. APPROVED with an unattested video is legal and
+        # expected — that is exactly the gap between the accuracy gate and the
+        # fidelity gate — so only PUBLISHED is constrained here.
+        if (
+            self.status is ContentDraftStatus.PUBLISHED
+            and self.has_video
+            and self.video_attested_at is None
+        ):
+            raise ValueError("PUBLISHED draft carries a video with no fidelity attestation")
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +226,62 @@ def approve(
     )
 
 
+def attest_video(
+    snapshot: ContentDraftSnapshot,
+    *,
+    attester_user_id: uuid.UUID,
+    video_asset_hash: str,
+    now: datetime,
+) -> ContentDraftSnapshot:
+    """Attest that the rendered footage matches the approved script.
+
+    This is a *different* question from :func:`approve`. Approval asks whether a
+    claim is accurate and cites its section correctly — textual, and verifiable
+    by reading. This asks whether the generated footage faithfully depicts what
+    was approved and depicts nothing misleading, which is what catches
+    hallucinated on-screen text or a person performing the wrong action.
+
+    It does not change ``status``: the draft is already ``APPROVED`` and stays
+    there until publish. What it adds is the second piece of evidence publish
+    requires.
+
+    Raises:
+        InvalidStateTransitionError: Not ``APPROVED``, no video on the draft,
+            ``now`` naive, or ``video_asset_hash`` empty.
+        SeparationOfDutiesError: Attester is the draft's generator.
+    """
+    if not snapshot.has_video:
+        raise InvalidStateTransitionError(
+            "Cannot attest footage on a draft that carries no video",
+            context={"current_status": snapshot.status.value},
+        )
+    if snapshot.status is not ContentDraftStatus.APPROVED:
+        raise InvalidStateTransitionError(
+            f"Cannot attest footage from status {snapshot.status.value!r}; "
+            f"expected {ContentDraftStatus.APPROVED.value!r}",
+            context={"current_status": snapshot.status.value},
+        )
+    if now.tzinfo is None:
+        raise InvalidStateTransitionError("`now` must be timezone-aware")
+    if not video_asset_hash:
+        raise InvalidStateTransitionError("`video_asset_hash` must be non-empty")
+    if (
+        snapshot.generated_by_user_id is not None
+        and attester_user_id == snapshot.generated_by_user_id
+    ):
+        raise SeparationOfDutiesError(
+            "The video attester may not be the user who generated the draft.",
+            context={"user_id": str(attester_user_id)},
+        )
+
+    return replace(
+        snapshot,
+        video_attested_by_user_id=attester_user_id,
+        video_attested_at=now,
+        video_asset_hash=video_asset_hash,
+    )
+
+
 def reject(snapshot: ContentDraftSnapshot) -> ContentDraftSnapshot:
     """Reject content under review (terminal). Permitted from ``IN_REVIEW``.
 
@@ -230,6 +314,17 @@ def publish(
         raise InvalidStateTransitionError(
             f"Cannot publish from status {snapshot.status.value!r}; "
             f"expected {ContentDraftStatus.APPROVED.value!r}",
+            context={"current_status": snapshot.status.value},
+        )
+    # The load-bearing invariant. A video that nobody has watched must not reach
+    # a learner: gate 1 attested the script's accuracy, not these bytes. Without
+    # this check the fidelity gate is advisory, which is exactly how PR-1's
+    # migration and PR-2's continuity check ended up being controls that existed
+    # in code and ran nowhere.
+    if snapshot.has_video and snapshot.video_attested_at is None:
+        raise InvalidStateTransitionError(
+            "Cannot publish a draft whose video has not been attested; "
+            "the footage needs a fidelity attestation before it reaches a learner",
             context={"current_status": snapshot.status.value},
         )
     return replace(

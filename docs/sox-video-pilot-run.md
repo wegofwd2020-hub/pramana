@@ -1,0 +1,121 @@
+# SOX video pilot — the render, and what it showed
+
+_Run 2026-09-09 on `mambakkam`. Spec:
+`docs/superpowers/specs/2026-09-09-sox-video-pilot-design.md`._
+
+## Verdict first
+
+**The pipeline works. The footage does not.**
+
+Every one of the five scenes carries **hallucinated on-screen text** — garbled
+pseudo-words, floating captions, a whiteboard covered in gibberish. The brief's
+`global_negative` names exactly this (`"text overlays, logos, watermarks,
+distorted faces"`) and it did not suppress them.
+
+So a reviewer running gate 2 would refuse to attest this segment, and
+`publish_draft` would refuse the draft. **The control fired on its first real
+input.** That is the pilot's most useful result: the fidelity gate was argued
+for on the hypothesis that generated video hallucinates on-screen text despite
+the negative prompt, and that turned out to be the *dominant* failure mode —
+present in 5 of 5 scenes, not an edge case. Had the design gone with
+"script gate only, the render is mechanical output", this would have reached
+learners with nobody having watched it.
+
+Artifacts (not committed — they are large and reproducible from the seed):
+`~/Downloads/sox-pilot-run/{sox-pilot.mp4,sox-pilot.json,render.log,frames.png}`.
+
+## What was rendered
+
+| | |
+|---|---|
+| provider / role | `local-diffusion` / `local-preview` |
+| model | `Lightricks/LTX-Video-0.9.5` + `ltxv-2b-0.9.8-distilled.safetensors` |
+| transformer fallback | none — the distilled single-file swap loaded |
+| geometry | 576×320, 49 frames, 8 steps, guidance 1.0 |
+| composition | one single-shot brief per narration line, 5 scenes × 2.0 s |
+| segment | 10.0 s, 245 frames, 148 675 bytes |
+| seeds | 9071–9075 (one per scene, `--seed 9071` + index) |
+| asset hash | `sha256:c0ddc5e5044c310432fad8329a12ec4231fc18b96c27012824e9e5dd4931f13e` |
+
+## Measurements
+
+| scene | seed | s/step | wall clock | bytes |
+|---|---|---|---|---|
+| 0 | 9071 | 74.6 | 19.9 min | 20 877 |
+| 1 | 9072 | 75.3 | 19.3 min | 25 118 |
+| 2 | 9073 | 75.4 | 19.9 min | 48 263 |
+| 3 | 9074 | 75.4 | 19.2 min | 33 071 |
+| 4 | 9075 | 73.9 | 19.6 min | 24 568 |
+| **total** | | **74.9 mean** | **98.0 min** | 148 675 |
+
+### The cost model was optimistic
+
+The plan extrapolated from the `wegofwd-video` row-1 measurement — 19.7 s/step
+at 336 latent tokens, i.e. **0.059 s per latent token per step** — and predicted
+~63 s/step at this geometry (1 080 latent tokens), so ~8.4 min of stepping and
+~11–12 min per scene once load, encode and decode were counted. **The plan said
+about an hour. It took 98 minutes.**
+
+Actual is **74.9 s/step**, which is **0.069 s per latent token per step** — 17%
+above the constant taken from the smaller geometry. Cost is *roughly* linear in
+latent tokens, not exactly; the constant drifts upward as the geometry grows.
+Anyone extrapolating from row 1 should add a margin rather than trusting it, and
+should re-derive the constant at the geometry they actually intend to use.
+
+Consistency is excellent though — 73.9 to 75.4 s/step across five independent
+runs, a 2% spread. The number is stable; it is the *scaling* that was wrong.
+
+## What it took to get here — nine attempts
+
+Recorded because most of these will bite the next person.
+
+| # | outcome |
+|---|---|
+| 1 | `resolve_role` failed — Pramana pinned `wegofwd-video@v1.0.0`, which predates the `local-preview` role. **Tasks 1–5 all passed against it**, because none of them import the provider. Fixed by releasing and pinning `v1.1.0`. |
+| 2 | the `[local]` extra was not installed |
+| 3 | **SIGILL mid-encode** — `transformers 5.17.0` executes an illegal instruction on this Ivy Bridge CPU, *after* all 219 T5 shards load. `5.16.1` is fine. Diagnosed by diffing against a venv that had rendered successfully: one package differed. |
+| 4 | lost to session teardown |
+| 5, 6 | genuine OOM — a browser held 14.5 GB of 31 GB |
+| 7 | OOM; the exit status was masked because the command was piped through `grep` |
+| 8 | killed by the harness's own memory guard at **3% of weight loading with 27 GB free** — a ~24 GB allocation trips it regardless of headroom |
+| 9 | **succeeded**, `setsid`-detached, box otherwise idle |
+
+**Memory is the binding constraint, and it is a floor, not a function of
+geometry.** The T5 encoder in bf16 alone reaches ~19 GB at load; peak was ~24 GB.
+Reducing scene count or resolution does not help — the model is what does not
+fit. This render needs the machine substantially to itself.
+
+## Reproducing it
+
+```bash
+pip install -e '.[render]'        # see pyproject.toml; torch must come from the CPU index
+python scripts/render_sox_pilot.py --dry-run          # free; resolves the role too
+python scripts/render_sox_pilot.py \
+    --out /tmp/sox-pilot.mp4 --json /tmp/sox-pilot.json --seed 9071 --threads 4
+```
+
+Deterministic by seed, which is the point: `local-diffusion` is
+`deterministic=True`, so an approved version can be regenerated byte-for-byte.
+The Veo Gemini Developer API rejects `seed` outright and cannot do this at all.
+That is a compliance property, not a cost one — and it is why the `render` extra
+pins `transformers==5.16.1` explicitly.
+
+## What this does not close
+
+- **VIDEO-1 stays open.** The footage is unusable, so no SOX lesson can ship
+  from this run.
+- **The transcript still has no reader** (`course_version.transcript`), so even
+  usable footage would reach a learner with no words. See the acceptance gap in
+  `TICKETS/VIDEO-1-pilot-lesson-videos.md`.
+- **Nothing here says 320p local is the right production path.** It says the
+  pipeline and the gates work. The survey's conclusion stands: local CPU buys
+  independence and reproducibility, not quality or speed. A rented GPU renders
+  the same brief in about a minute.
+
+## The obvious next experiment
+
+The failure is on-screen text, which is a *prompt and model* problem, not a
+pipeline one. Worth trying before concluding anything about the render path:
+a stronger negative prompt, more steps (8 is the distilled model's low end), or
+a different checkpoint. Each is cheap to state and ~20 minutes per scene to
+test — so change one variable at a time and keep the seeds fixed.

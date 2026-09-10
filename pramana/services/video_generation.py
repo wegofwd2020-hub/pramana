@@ -144,6 +144,9 @@ async def attach_course_video(
     patch = video_to_body_patch(
         result, asset_ref=asset_ref, provenance=prov, min_watch_pct=min_watch_pct
     )
+    # The words that were approved. The pilot renders silent footage, so
+    # this is the learner's only access to what the lesson actually says.
+    patch["video"]["transcript"] = "\n".join(lines)
     # Reassign body so SQLAlchemy detects the JSONB change (in-place mutation of a
     # mutable column is not tracked).
     draft.body = {**draft.body, **patch}

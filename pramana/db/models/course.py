@@ -172,6 +172,12 @@ class CourseVersion(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         comment="S3 key of the uploaded video asset.",
     )
     min_watch_pct: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    transcript: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="The approved narration as text. The pilot renders silent "
+        "footage, so this is how the words reach the learner.",
+    )
 
     is_active: Mapped[bool] = mapped_column(
         Boolean,

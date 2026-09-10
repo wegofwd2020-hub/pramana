@@ -13,6 +13,7 @@ import pytest
 from wegofwd_video import VideoCapabilities, VideoProvider, VideoRequest, VideoResult
 from wegofwd_video.errors import VideoCapabilityError
 
+from pramana.domain import video_generation as vg
 from pramana.domain.video_generation import (
     GEN_ENGINE,
     VIDEO_PROMPT_VERSION,
@@ -157,3 +158,116 @@ def test_materialize_video_malformed_raises(video):
 def test_generator_constants_stable():
     assert GEN_ENGINE == "pramana"
     assert VIDEO_PROMPT_VERSION.startswith("pramana-video")
+
+
+# ── transcript projection ──────────────────────────────────────────────────────
+class TestTranscriptProjection:
+    """Silent footage means the transcript is the only thing that speaks."""
+
+    def test_transcript_is_projected_from_the_body(self) -> None:
+        video = materialize_video(
+            {
+                "video": {
+                    "asset_ref": "s3://a.mp4",
+                    "min_watch_pct": 80,
+                    "transcript": "Every control has an owner.",
+                }
+            }
+        )
+        assert video is not None
+        assert video.transcript == "Every control has an owner."
+
+    def test_a_body_without_a_transcript_projects_none(self) -> None:
+        """Pre-existing drafts have no transcript and must still publish."""
+        video = materialize_video({"video": {"asset_ref": "s3://a.mp4", "min_watch_pct": 80}})
+        assert video is not None
+        assert video.transcript is None
+
+    def test_a_blank_transcript_is_normalised_to_none(self) -> None:
+        video = materialize_video(
+            {"video": {"asset_ref": "s3://a.mp4", "min_watch_pct": 0, "transcript": "   "}}
+        )
+        assert video is not None
+        assert video.transcript is None
+
+    def test_a_non_string_transcript_is_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            materialize_video(
+                {"video": {"asset_ref": "s3://a.mp4", "min_watch_pct": 0, "transcript": 42}}
+            )
+
+
+class TestSceneBriefs:
+    """One brief per line, because the provider flattens multi-shot briefs."""
+
+    def test_one_brief_per_narration_line(self) -> None:
+        briefs = vg.build_scene_briefs(
+            clause_title="ICFR awareness",
+            narration_lines=["One.", "Two.", "Three."],
+        )
+        assert len(briefs) == 3
+
+    def test_each_brief_has_exactly_one_shot(self) -> None:
+        briefs = vg.build_scene_briefs(
+            clause_title="ICFR awareness", narration_lines=["One.", "Two."]
+        )
+        assert all(len(b.shots) == 1 for b in briefs)
+
+    def test_each_line_becomes_its_own_shot_dialogue_in_order(self) -> None:
+        lines = ["First claim.", "Second claim."]
+        briefs = vg.build_scene_briefs(clause_title="ICFR", narration_lines=lines)
+        assert [b.shots[0].dialogue for b in briefs] == lines
+
+    def test_each_render_costs_the_default_and_the_segment_totals_ten(self) -> None:
+        """The cap is per render, and each brief is one render.
+
+        Asserting only the aggregate cannot see the difference between five
+        renders of 2s and one render of 10s — the total is 10s either way, and
+        the cap rejects only `> 10`. The per-brief list is what distinguishes
+        them, so assert that.
+        """
+        briefs = vg.build_scene_briefs(clause_title="ICFR", narration_lines=["a"] * 5)
+        per_brief = [sum(s.duration_s for s in b.shots) for b in briefs]
+        assert per_brief == [2.0] * 5, per_brief
+        assert all(d <= 10 for d in per_brief)
+
+    def test_the_default_shot_duration_is_used_when_not_given(self) -> None:
+        """The previous test passed shot_duration_s explicitly, so the module
+        default was never exercised. If the default drifted upward, a five-line
+        segment would silently exceed the per-render cap."""
+        briefs = vg.build_scene_briefs(clause_title="ICFR", narration_lines=["a", "b"])
+        assert [s.duration_s for b in briefs for s in b.shots] == [2.0, 2.0]
+
+    def test_ordering_comes_from_list_position_not_scene_index(self) -> None:
+        """Each brief holds one shot, so its own scene_index is always 1.
+
+        `build_video_brief` numbers shots within a single call (`i + 1`), and
+        every call here gets exactly one line. Order lives in the returned
+        list, which is what the concat step consumes.
+        """
+        briefs = vg.build_scene_briefs(clause_title="ICFR", narration_lines=["a", "b", "c"])
+        assert [b.shots[0].scene_index for b in briefs] == [1, 1, 1]
+
+    def test_no_lines_yields_no_briefs(self) -> None:
+        assert vg.build_scene_briefs(clause_title="ICFR", narration_lines=[]) == []
+
+    def test_blank_lines_are_skipped_not_fatal(self) -> None:
+        """`build_video_brief` raises on empty narration, so blanks must be
+        filtered here — one stray blank line in a script must not kill the
+        whole composition."""
+        briefs = vg.build_scene_briefs(clause_title="ICFR", narration_lines=["a", "   ", "", "b"])
+        assert len(briefs) == 2
+
+    def test_style_negative_and_audio_direction_are_forwarded(self) -> None:
+        """These are pass-through arguments; a dropped one would silently revert
+        every scene to the module defaults."""
+        briefs = vg.build_scene_briefs(
+            clause_title="ICFR",
+            narration_lines=["a", "b"],
+            style="stark monochrome",
+            negative="no text, no logos",
+            audio_direction="measured narrator",
+        )
+        assert all(b.global_style == "stark monochrome" for b in briefs)
+        assert all(b.global_negative == "no text, no logos" for b in briefs)
+        assert all(b.audio_direction == "measured narrator" for b in briefs)
