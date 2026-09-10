@@ -98,6 +98,16 @@ except ImportError:  # pragma: no cover - only when the local extra is absent
 #: the requested aesthetic, not a defect, but it is a house-style decision that
 #: deserves to be made deliberately rather than inherited.
 BASELINE_STYLE = "clean corporate explainer, flat illustration, neutral palette"
+
+#: The prompt template the refused render actually used, pinned here as a
+#: literal rather than inherited from ``build_video_brief``.
+#:
+#: The domain default has since changed — that template is what summoned the
+#: captioned stock footage, and it was replaced. But this file's job is to
+#: reproduce the configuration a reviewer refused, so it has to carry the old
+#: wording itself. Inheriting it would mean the "baseline" quietly tracks the
+#: current default and stops being a baseline at all.
+BASELINE_PROMPT_TEMPLATE = "a compliance presenter explains: {line}"
 BASELINE_NEGATIVE = "no on-screen text artifacts, no logos, no real faces, no flashing"
 
 #: The style for the two improved variants. Photographic rather than
@@ -218,6 +228,7 @@ def build_briefs(variant: Variant, *, shot_duration_s: float) -> list[VideoBrief
         return build_scene_briefs(
             clause_title="ICFR awareness",
             narration_lines=SCRIPT_LINES,
+            scene_prompts=[BASELINE_PROMPT_TEMPLATE.format(line=line) for line in SCRIPT_LINES],
             shot_duration_s=shot_duration_s,
             style=variant.style,
             negative=variant.negative,

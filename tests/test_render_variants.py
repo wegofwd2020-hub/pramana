@@ -96,8 +96,15 @@ class TestBriefComposition:
         assert rendered == list(harness.SCENE_PROMPTS)
         assert not any(p.startswith("a compliance presenter explains") for p in rendered)
 
-    def test_the_templated_variants_still_use_the_template(self) -> None:
-        """Otherwise `quality` would not be a like-for-like control."""
+    def test_the_templated_variants_reproduce_the_refused_prompt(self) -> None:
+        """This file reproduces a configuration a reviewer refused, so it must
+        carry the old wording itself rather than inherit the domain default.
+
+        `build_video_brief` no longer emits "a compliance presenter explains" —
+        that template is what summoned the captioned stock footage and it was
+        replaced. If this harness inherited the default, `baseline` would
+        quietly track whatever the current default is and stop being a baseline.
+        """
         briefs = harness.build_briefs(_by_name("quality"), shot_duration_s=2.0)
         for brief in briefs:
             assert brief.shots[0].prompt.startswith("a compliance presenter explains")
