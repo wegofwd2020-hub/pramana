@@ -51,7 +51,12 @@ async def _draft(db: AsyncSession, *, generated_by: uuid.UUID | None, **override
 
 
 async def _user(db: AsyncSession) -> User:
-    tenant = Tenant(id=uuid.uuid4(), name="U", short_code=uuid.uuid4().hex[:12])
+    # Unique name: tenant.name is unique, so a test needing two users
+    # would otherwise fail on uq_tenant_name rather than on the CHECK
+    # it is actually exercising.
+    tenant = Tenant(
+        id=uuid.uuid4(), name=f"U-{uuid.uuid4().hex[:8]}", short_code=uuid.uuid4().hex[:12]
+    )
     db.add(tenant)
     await db.flush()
     user = User(user_id=uuid.uuid4(), tenant_id=tenant.id, email=f"{uuid.uuid4()}@e.example")
@@ -103,6 +108,53 @@ class TestVideoAttestationConstraints:
         await _draft(
             db,
             generated_by=None,
+            video_asset_hash="sha256:b",
+            video_attested_by_user_id=attester.user_id,
+            video_attested_at=datetime.now(UTC),
+        )
+        await db.commit()  # must not raise
+
+    async def test_the_footage_producer_may_not_attest_it(self, db: AsyncSession) -> None:
+        """The database backstop for gate 2's real question.
+
+        The domain enforces this too, but the domain can be bypassed by any code
+        holding a session — the same reason the other constraints in this file
+        exist.
+        """
+        producer = await _user(db)
+        await _draft(
+            db,
+            generated_by=None,
+            video_generated_by_user_id=producer.user_id,
+            video_asset_hash="sha256:b",
+            video_attested_by_user_id=producer.user_id,
+            video_attested_at=datetime.now(UTC),
+        )
+        with pytest.raises(IntegrityError):
+            await db.commit()
+
+    async def test_a_third_party_may_attest_the_footage(self, db: AsyncSession) -> None:
+        producer = await _user(db)
+        attester = await _user(db)
+        await _draft(
+            db,
+            generated_by=None,
+            video_generated_by_user_id=producer.user_id,
+            video_asset_hash="sha256:b",
+            video_attested_by_user_id=attester.user_id,
+            video_attested_at=datetime.now(UTC),
+        )
+        await db.commit()  # must not raise
+
+    async def test_a_draft_with_no_recorded_producer_can_be_attested(
+        self, db: AsyncSession
+    ) -> None:
+        """Drafts predating the column must not be retro-blocked."""
+        attester = await _user(db)
+        await _draft(
+            db,
+            generated_by=None,
+            video_generated_by_user_id=None,
             video_asset_hash="sha256:b",
             video_attested_by_user_id=attester.user_id,
             video_attested_at=datetime.now(UTC),

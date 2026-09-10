@@ -150,6 +150,10 @@ async def attach_course_video(
     # Reassign body so SQLAlchemy detects the JSONB change (in-place mutation of a
     # mutable column is not tracked).
     draft.body = {**draft.body, **patch}
+    # Record WHO produced the footage. Until now this id reached only the audit
+    # payload, so the fidelity gate compared the attester against the script's
+    # author instead and the producer could attest their own render.
+    draft.video_generated_by_user_id = generated_by_user_id
 
     await append_audit(
         session,
