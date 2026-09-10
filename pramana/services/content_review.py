@@ -82,9 +82,22 @@ def _add_question(session: AsyncSession, course_version_id: uuid.UUID, spec: Que
         )
 
 
-async def _load(session: AsyncSession, draft_id: uuid.UUID) -> ContentDraft:
+async def _load(
+    session: AsyncSession, draft_id: uuid.UUID, *, tenant_id: uuid.UUID
+) -> ContentDraft:
+    """Load a live draft belonging to this tenant, or 404.
+
+    ``tenant_id`` is keyword-only and REQUIRED: an optional tenant filter is one
+    a future call site forgets, which is exactly how this function spent its
+    life checking ``archived_at`` and nothing else while every caller had a
+    tenant in hand.
+
+    The refusal is NotFoundError and names no tenant. A cross-tenant probe must
+    be indistinguishable from a genuine miss, or the difference between 404 and
+    403 tells an attacker which draft ids exist.
+    """
     draft = await session.get(ContentDraft, draft_id)
-    if draft is None or draft.archived_at is not None:
+    if draft is None or draft.archived_at is not None or draft.tenant_id != tenant_id:
         raise NotFoundError("content draft not found", context={"draft_id": str(draft_id)})
     return draft
 
@@ -163,9 +176,11 @@ async def list_drafts(
     return rows, int(total)
 
 
-async def get_draft(session: AsyncSession, *, draft_id: uuid.UUID) -> ContentDraft:
-    """Load a single draft (404 if missing/archived)."""
-    return await _load(session, draft_id)
+async def get_draft(
+    session: AsyncSession, *, draft_id: uuid.UUID, tenant_id: uuid.UUID
+) -> ContentDraft:
+    """Load a single draft (404 if missing, archived, or another tenant's)."""
+    return await _load(session, draft_id, tenant_id=tenant_id)
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +195,7 @@ async def submit_for_review(
     now: datetime,
 ) -> ContentDraft:
     """``RECEIVED``/``DRAFT`` → ``IN_REVIEW``."""
-    draft = await _load(session, draft_id)
+    draft = await _load(session, draft_id, tenant_id=tenant_id)
     new = ca.submit_for_review(_snapshot(draft))
     draft.status = new.status.value
     await _audit(
@@ -214,7 +229,7 @@ async def approve_draft(
 
     Separation of duties (approver ≠ generator) is enforced by the domain.
     """
-    draft = await _load(session, draft_id)
+    draft = await _load(session, draft_id, tenant_id=tenant_id)
     content_hash = compute_content_hash(canonical_json(draft.body))
     new = ca.approve(
         _snapshot(draft),
@@ -261,12 +276,8 @@ async def attest_draft_video(
         InvalidStateTransitionError: Draft is not ``APPROVED``, or carries no video.
         SeparationOfDutiesError: The attester generated the draft.
     """
-    draft = await session.get(ContentDraft, draft_id)
-    if draft is None or draft.tenant_id != tenant_id:
-        raise NotFoundError(
-            "content draft not found in tenant",
-            context={"draft_id": str(draft_id), "tenant_id": str(tenant_id)},
-        )
+    # _load now checks tenant AND archived_at; this used to check only tenant.
+    draft = await _load(session, draft_id, tenant_id=tenant_id)
 
     new = ca.attest_video(
         _snapshot(draft),
@@ -300,7 +311,7 @@ async def request_changes(
     now: datetime,
 ) -> ContentDraft:
     """``IN_REVIEW`` → ``DRAFT`` with reviewer notes."""
-    draft = await _load(session, draft_id)
+    draft = await _load(session, draft_id, tenant_id=tenant_id)
     new = ca.request_changes(_snapshot(draft))
     draft.status = new.status.value
     draft.review_notes = notes
@@ -325,7 +336,7 @@ async def reject_draft(
     now: datetime,
 ) -> ContentDraft:
     """``IN_REVIEW`` → ``REJECTED`` (terminal) with reviewer notes."""
-    draft = await _load(session, draft_id)
+    draft = await _load(session, draft_id, tenant_id=tenant_id)
     new = ca.reject(_snapshot(draft))
     draft.status = new.status.value
     draft.review_notes = notes
@@ -361,7 +372,7 @@ async def publish_draft(
         ValidationError: The draft's quiz body is malformed — no question is
             materialised and nothing is written.
     """
-    draft = await _load(session, draft_id)
+    draft = await _load(session, draft_id, tenant_id=tenant_id)
     course_version_id = uuid.uuid4()
     # Validates APPROVED *before* any DB write (raises otherwise).
     new = ca.publish(_snapshot(draft), course_version_id=course_version_id)

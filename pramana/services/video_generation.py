@@ -113,7 +113,9 @@ async def attach_course_video(
         wegofwd_video.VideoError: Generation failed (capability / transport).
     """
     draft = await session.get(ContentDraft, draft_id)
-    if draft is None or draft.tenant_id != tenant_id:
+    # archived_at as well as tenant: an archived draft is not a live one, and
+    # every other loader refuses it.
+    if draft is None or draft.archived_at is not None or draft.tenant_id != tenant_id:
         raise NotFoundError(
             "content draft not found in tenant",
             context={"draft_id": str(draft_id), "tenant_id": str(tenant_id)},
