@@ -279,6 +279,63 @@ tailoring all have their own stories.
 
 ---
 
+## UNBLOCKED — 2026-09-10 (later): it was the prompt, not CFG
+
+**Superseded the blocker section below.** A rendered segment cleared human
+review, with no upstream fix. `~/Downloads/sox-segment/sox-scene.mp4` — 10 s,
+five scenes, 480p. Reviewer: images "clean and clear", **no caption artifacts**.
+
+### What actually caused the text
+
+Not classifier-free guidance. The prompt. `build_video_brief` renders every
+scene as `f"a compliance presenter explains: {line}"`, which describes **stock
+corporate training footage** — a genre that ships with burned-in captions. The
+model reproduced the look and, unable to spell, emitted letterform-shaped marks
+in a caption bar. Extracted frames show three centred lines exactly where
+subtitles sit.
+
+Replacing that with a description of a *scene* removed them entirely, at
+guidance 1.0, with the CFG defect still present and unfixed.
+
+### The recipe that works
+
+| setting | value |
+|---|---|
+| prompt | a scene description, **not** "a compliance presenter explains: {line}" |
+| style | `restrained corporate documentary photography, muted neutral palette, natural window light, shallow depth of field` |
+| geometry | 480p |
+| steps | 30 |
+| guidance | 1.0, distilled transformer |
+
+Dropping `"flat illustration"` from the style addresses the "highly cartoonish"
+objection from the first review; it was a house-style choice, not a defect.
+
+`scripts/render_scene_segment.py` renders this. The five scene prompts are
+`SCENE_PROMPTS` in `scripts/render_variants.py`, one per narration line, and
+they deliberately do not restate the narration — the footage is B-roll and
+asserts no statute, so a scene should look like its subject rather than
+illustrate its sentence.
+
+### The one gap that remains
+
+Scene 3 — *"a missing owner is itself a finding, not a footnote"* — asked for
+one empty chair at a table of occupied chairs. The model rendered the occupied
+table but **not the empty chair**, which is the whole meaning. Diffusion models
+are weak at absence as a subject.
+
+This is a content decision, not a settings one: choose a different visual
+metaphor for that claim, or leave it to the transcript and keep the footage
+generic. It does not block the pilot; it shapes how scripts should be written.
+
+### Next
+
+1. Fold the recipe into `build_video_brief` as defaults — the prompt template is
+   the fix, and it belongs in the domain rather than in a script.
+2. Re-attempt gate 2 properly with a rendered segment and a real attestation.
+3. wegofwd-video#6 stays open but is **off the critical path**.
+
+---
+
 ## BLOCKED — 2026-09-10: classifier-free guidance is broken upstream
 
 **Status: the pilot cannot clear gate 2 until `wegofwd-video` issue #6 is fixed.**
