@@ -50,6 +50,7 @@ def _snapshot(draft: ContentDraft) -> ca.ContentDraftSnapshot:
         # malformed block and would then fail every read path. publish_draft
         # validates the block separately, which is where a malformed one belongs.
         has_video=bool((draft.body or {}).get("video")),
+        video_generated_by_user_id=draft.video_generated_by_user_id,
         video_asset_hash=draft.video_asset_hash,
         video_attested_by_user_id=draft.video_attested_by_user_id,
         video_attested_at=draft.video_attested_at,

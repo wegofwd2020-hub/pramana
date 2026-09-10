@@ -317,3 +317,69 @@ class TestVideoFidelityAttestation:
             content_hash="sha256:script",
         )
         assert snapshot.video_attested_at is None
+
+
+class TestVideoProducerSeparationOfDuties:
+    """Gate 2 must bar whoever produced the footage, not only the script's author.
+
+    `attach_course_video` takes a `generated_by_user_id` and writes it to the
+    audit payload; `draft.generated_by_user_id` means the *script* author and is
+    never updated by it. So before this rule, Carol could render the footage and
+    then attest her own bytes, because the check compared her against Alice.
+    """
+
+    PRODUCER_ID = uuid.uuid4()
+
+    def _approved(self, **overrides) -> ca.ContentDraftSnapshot:
+        base = {
+            "status": ContentDraftStatus.APPROVED,
+            "has_content": True,
+            "has_video": True,
+            "generated_by_user_id": GENERATOR_ID,
+            "video_generated_by_user_id": self.PRODUCER_ID,
+            "approved_by_user_id": APPROVER_ID,
+            "approved_at": NOW,
+            "content_hash": "sha256:script",
+        }
+        base.update(overrides)
+        return ca.ContentDraftSnapshot(**base)
+
+    def test_the_footage_producer_may_not_attest_their_own_bytes(self) -> None:
+        """The finding: Carol renders, Carol must not sign off."""
+        with pytest.raises(SeparationOfDutiesError, match="produced the footage"):
+            ca.attest_video(
+                self._approved(),
+                attester_user_id=self.PRODUCER_ID,
+                video_asset_hash="sha256:bytes",
+                now=NOW,
+            )
+
+    def test_the_script_author_is_still_barred(self) -> None:
+        """The pre-existing rule must not be loosened by adding the new one."""
+        with pytest.raises(SeparationOfDutiesError):
+            ca.attest_video(
+                self._approved(),
+                attester_user_id=GENERATOR_ID,
+                video_asset_hash="sha256:bytes",
+                now=NOW,
+            )
+
+    def test_a_third_party_may_attest(self) -> None:
+        """Neither author nor producer — the intended reviewer."""
+        attested = ca.attest_video(
+            self._approved(),
+            attester_user_id=ATTESTER_ID,
+            video_asset_hash="sha256:bytes",
+            now=NOW,
+        )
+        assert attested.video_attested_by_user_id == ATTESTER_ID
+
+    def test_a_draft_with_no_recorded_producer_is_unaffected(self) -> None:
+        """Legacy drafts predate the column; the rule must not retro-block them."""
+        attested = ca.attest_video(
+            self._approved(video_generated_by_user_id=None),
+            attester_user_id=ATTESTER_ID,
+            video_asset_hash="sha256:bytes",
+            now=NOW,
+        )
+        assert attested.video_attested_by_user_id == ATTESTER_ID

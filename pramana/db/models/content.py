@@ -145,6 +145,13 @@ class ContentDraft(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     # ---- Fidelity attestation over the rendered video (distinct from approval)
     # Approval above freezes the *body*; these freeze the rendered *bytes* and
     # record who watched them. Two hashes over two different artefacts.
+    video_generated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("user_account.user_id", ondelete="RESTRICT"),
+        nullable=True,
+        comment="Who produced the footage — NOT the script's author, which is "
+        "generated_by_user_id. The fidelity gate bars this user from attesting.",
+    )
     video_asset_hash: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
@@ -201,6 +208,16 @@ class ContentDraft(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
         CheckConstraint(
             "video_attested_at IS NULL OR video_asset_hash IS NOT NULL",
             name="video_attestation_needs_asset",
+        ),
+        # Whoever produced the footage may not attest it. Separate from the
+        # author check above: attach_course_video's producer and the draft's
+        # script author are routinely different people. Null escape matches the
+        # others — drafts predating the column record no producer.
+        CheckConstraint(
+            "video_attested_by_user_id IS NULL "
+            "OR video_generated_by_user_id IS NULL "
+            "OR video_attested_by_user_id <> video_generated_by_user_id",
+            name="video_producer_separation_of_duties",
         ),
         # A package id/version is either both present (ingested) or both absent.
         CheckConstraint(

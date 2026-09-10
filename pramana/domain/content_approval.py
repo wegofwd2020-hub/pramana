@@ -59,6 +59,10 @@ class ContentDraftSnapshot:
         content_hash: Hash of the exact approved content body — set iff approved.
         published_course_version_id: The immutable ``CourseVersion`` this draft
             materialised into — set iff ``PUBLISHED``.
+        video_generated_by_user_id: Who produced the footage. Distinct from
+            ``generated_by_user_id``, which is the *script's* author — the two
+            are often different people, and the fidelity gate must bar the one
+            who made the bytes. ``None`` on drafts predating the column.
         has_video: Whether the draft body carries a video block. A video is
             attached while the draft is still ``DRAFT``, so this is true well
             before the fidelity attestation exists.
@@ -75,6 +79,7 @@ class ContentDraftSnapshot:
     content_hash: str | None = None
     published_course_version_id: uuid.UUID | None = None
     has_video: bool = False
+    video_generated_by_user_id: uuid.UUID | None = None
     video_asset_hash: str | None = None
     video_attested_by_user_id: uuid.UUID | None = None
     video_attested_at: datetime | None = None
@@ -248,7 +253,8 @@ def attest_video(
     Raises:
         InvalidStateTransitionError: Not ``APPROVED``, no video on the draft,
             ``now`` naive, or ``video_asset_hash`` empty.
-        SeparationOfDutiesError: Attester is the draft's generator.
+        SeparationOfDutiesError: Attester wrote the script, or produced the
+            footage they are being asked to vouch for.
     """
     if not snapshot.has_video:
         raise InvalidStateTransitionError(
@@ -271,6 +277,18 @@ def attest_video(
     ):
         raise SeparationOfDutiesError(
             "The video attester may not be the user who generated the draft.",
+            context={"user_id": str(attester_user_id)},
+        )
+    # The substance of a fidelity gate: whoever produced the bytes does not get
+    # to vouch for them. Checked separately from the author above because
+    # attach_course_video's producer and the draft's script author are routinely
+    # different people.
+    if (
+        snapshot.video_generated_by_user_id is not None
+        and attester_user_id == snapshot.video_generated_by_user_id
+    ):
+        raise SeparationOfDutiesError(
+            "The video attester may not be the user who produced the footage.",
             context={"user_id": str(attester_user_id)},
         )
 
