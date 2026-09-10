@@ -276,3 +276,73 @@ Population targeting (`User.cde_access`, risk tiering, workforce designation) �
 each story flags it as a separate concern and the officer is assumed to select
 the population. Dashboards, evidence binders, refresher cadence, and role
 tailoring all have their own stories.
+
+---
+
+## BLOCKED — 2026-09-10: classifier-free guidance is broken upstream
+
+**Status: the pilot cannot clear gate 2 until `wegofwd-video` issue #6 is fixed.**
+This is not a tuning problem and no further parameter sweep will help.
+
+### What happened
+
+The rendered SOX segment (`docs/sox-video-pilot-run.md`) was refused at gate 2.
+The reviewer's objections were: no audio; imagery that "does not represent
+anything specifically"; and on-screen text that is not English.
+
+The first is by design — `local-preview` is `native_audio=False` and the design
+accepted silent footage, with `course_version.transcript` carrying the words
+(wired to both player manifests in PR #43).
+
+The other two traced to `guidance = 1.0`, which means classifier-free guidance is
+**off**: nothing steers the sample toward the prompt, and — critically — the
+negative prompt has no force, because a negative only acts through CFG. So
+`_DEFAULT_NEGATIVE`'s `"no on-screen text artifacts"` never suppressed anything.
+
+Note this makes the spec's stated justification for gate 2 right for the wrong
+reason. `docs/superpowers/specs/2026-09-09-sox-video-pilot-design.md` says the
+gate catches "hallucinated on-screen text **despite** the negative prompt". The
+negative prompt was never in effect.
+
+### Why raising guidance does not fix it
+
+Measured on rented GPUs (RTX 4090 and RTX 3090), one variable at a time, same
+seed, same scene, via `scripts/bisect_render.py`:
+
+| transformer | guidance 1.0 | guidance 3.0 |
+|---|---|---|
+| `ltxv-2b-0.9.8-distilled` | 43,481 B — image | 23,743 B — grey |
+| repo transformer | 74,845 B — image | 8,553 B — grey |
+
+**Any guidance above 1.0 renders uniform grey on both checkpoints.** Ruled out
+individually and each fine: bfloat16 (42,775 B), 864x480 (82,441 B), 30 steps
+(46,789 B), the non-distilled transformer at guidance 1.0 (74,845 B).
+
+Filed upstream as **wegofwd-video#6**.
+
+### Consequence for this pilot
+
+The negative prompt is not merely ineffective at the current setting — it
+**cannot be made effective**. Until #6 is fixed, generated footage will carry
+text-shaped artifacts that no prompt or parameter change can remove, and a
+fidelity attester is right to refuse it.
+
+That the gate caught this on its first real input is the pilot's main positive
+result: the control works, and it stopped unusable footage reaching a learner.
+
+### Options when #6 is fixed
+
+1. Re-run the ladder with CFG actually working, and see whether the imagery and
+   the text artifacts both resolve. Cheap: ~$0.40 of rented GPU.
+2. If quality is still short, the next lever is a larger model (13B, a different
+   repo) — not more prompt engineering.
+3. If generated video cannot clear gate 2 even with CFG, that is a legitimate
+   finding: the increment becomes transcript-plus-stills, and this pilot has
+   earned its cost by establishing it.
+
+### Artifacts
+
+- `~/Downloads/sox-variants/` — 3 clips + `results.json` (first ladder)
+- `~/Downloads/sox-bisect/` — 7 clips + `bisect.json` (the 2x2)
+- `scripts/render_variants.py` (PR #44, merged), `scripts/bisect_render.py`
+  (branch `fix/bisect-render`)
