@@ -194,6 +194,16 @@ plugins = ["pydantic.mypy"]
 module = ["alembic.*", "celery.*", "factory.*"]
 ignore_missing_imports = true
 
+# torch and transformers ship only with the `render` extra, which CI does not
+# install (it installs `.[dev]`, deliberately — no GPU, no 26 GB of weights).
+# scripts/render_variants.py imports them inside functions to record the
+# environment a render ran on, so without this the Type check job fails on a
+# machine where the render could never run anyway. A developer with the extra
+# installed would not see it, which is exactly how it reached CI.
+[[tool.mypy.overrides]]
+module = ["torch.*", "transformers.*"]
+ignore_missing_imports = true
+
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
