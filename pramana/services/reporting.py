@@ -36,6 +36,7 @@ from typing import Any
 
 from sqlalchemy import Select, String, cast, func, select
 from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pramana.db.models.assignment import Assignment
@@ -66,7 +67,7 @@ def _status_as_of(as_of: datetime) -> Select[tuple[str, str, str, datetime]]:
             AuditLog.occurred_at.label("occurred_at"),
         )
         .where(AuditLog.entity_type == "assignment", AuditLog.occurred_at <= as_of)
-        .distinct(AuditLog.entity_id)
+        .ext(distinct_on(AuditLog.entity_id))
         .order_by(AuditLog.entity_id, AuditLog.audit_id.desc())
     )
 
