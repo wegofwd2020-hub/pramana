@@ -213,7 +213,7 @@ def _write_outputs(
         "blender": _blender_version(args),
         "piper_model": args.piper_model.name if args.piper_model else None,
         "cast_voices": {speaker.id: speaker.voice for speaker in lesson.cast},
-        "assets": _asset_hashes(lesson, args.spec.parent),
+        "assets": _asset_hashes(lesson, args.spec.resolve().parent),
         "fps": args.fps,
         "resolution": [1280, 720],
         "scene_durations_s": {str(j.scene_id): round(j.duration_s, 3) for j in jobs},
@@ -240,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return EXIT_SPEC
 
-    missing = _missing_assets(lesson, args.spec.parent)
+    missing = _missing_assets(lesson, args.spec.resolve().parent)
     if missing:
         print(f"error: missing asset(s): {', '.join(missing)}", file=sys.stderr)
         return EXIT_SPEC
@@ -249,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
     work = out_dir / "work"
 
     if args.dry_run:
-        jobs = plan_jobs(lesson, work, args.fps, asset_root=args.spec.parent)
+        jobs = plan_jobs(lesson, work, args.fps, asset_root=args.spec.resolve().parent)
         print(json.dumps(_plan_summary(lesson, jobs), indent=2))
         return EXIT_OK
 
@@ -259,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: narration: {exc}", file=sys.stderr)
         return EXIT_NARRATION
 
-    jobs = plan_jobs(lesson, work, args.fps, durations, asset_root=args.spec.parent)
+    jobs = plan_jobs(lesson, work, args.fps, durations, asset_root=args.spec.resolve().parent)
     try:
         for job in jobs:
             _render_frames(job, work / f"scene-{job.scene_id:02d}" / "job.json", args)
