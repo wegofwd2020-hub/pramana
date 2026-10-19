@@ -21,27 +21,24 @@ inside Blender.
 
 Piper's old standalone binary (`rhasspy/piper`) is archived. The maintained project
 is `OHF-Voice/piper1-gpl`, installed as the `piper-tts` package and run as a module.
+The setup script does the whole install:
 
 ```bash
-# 1. A virtualenv for Piper, kept apart from the repo venv
-python3 -m venv ~/venvs/piper
-~/venvs/piper/bin/pip install --upgrade pip
-~/venvs/piper/bin/pip install piper-tts
-
-# 2. A voice: the model and its config, side by side
-mkdir -p ~/voices && cd ~/voices
-B=https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium
-curl -fLO "$B/en_US-lessac-medium.onnx"
-curl -fLO "$B/en_US-lessac-medium.onnx.json"
-
-# 3. Check that synthesis works (writes a WAV, speaks one line from stdin)
-echo "Piper is installed." | ~/venvs/piper/bin/python -m piper \
-  -m ~/voices/en_US-lessac-medium.onnx -f /tmp/piper-check.wav
-ffprobe -v error -show_entries format=duration -of default=nk=1:nw=1 /tmp/piper-check.wav
+cd /path/to/pramana
+python -m scripts.blender_lesson.setup_piper            # full setup
+python -m scripts.blender_lesson.setup_piper --check-only   # tools only
 ```
 
-Then point the renderer at that interpreter with `--python ~/venvs/piper/bin/python`.
-The default is `python3`, which works only if `piper-tts` was installed there.
+It checks for `blender`, `ffmpeg` and `ffprobe`, creates `~/venvs/piper`, installs
+`piper-tts`, downloads `en_US-lessac-medium` into `~/voices/`, and synthesises a
+check phrase. On success it prints the exact `--python` and `--piper-model` values
+to use in step 2. Options: `--voice NAME`, `--venv DIR`, `--voices-dir DIR`. Exit
+codes: 0 ok, 2 missing tools, 3 setup or download failed, 4 synthesis check failed.
+
+Manual steps, if the script cannot run: create a venv, `pip install piper-tts`, fetch
+the `.onnx` and `.onnx.json` from
+`https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/`,
+then run `python -m piper -m <model.onnx> -f out.wav` with a line on stdin.
 
 Other tools: Blender 4.0.2 and ffmpeg are already present. Nothing else is needed.
 
@@ -99,7 +96,7 @@ to confirm on vaganam:
 2. **Piper synthesis.** The renderer runs `python -m piper -m MODEL -f OUT` and
    writes each scene's line to stdin. The `piper --help` output was checked against
    the package source, but no voice could be downloaded in the sandbox, so the first
-   real synthesis is still unconfirmed. Step 3 of the install section is that check.
+   real synthesis is still unconfirmed. The setup script's synthesis check is that test.
    If it fails, the narration step reports Piper's stderr in the message.
 3. **Frame count.** The renderer checks that Blender wrote exactly
    `duration × fps` frames per scene. A mismatch stops the run with exit code 4.
