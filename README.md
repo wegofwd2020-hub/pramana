@@ -174,7 +174,7 @@ course:
   per-user binder. Auditor / compliance-admin only. Pulling an export is itself audited.
   See [`docs/00_architecture.md` §8](./docs/00_architecture.md#8-proving-it-verification-and-evidence-export).
 
-Database schema is managed by Alembic migrations `0001`→`0006`.
+Database schema is managed by Alembic migrations `0001`→`0013`.
 
 ---
 
