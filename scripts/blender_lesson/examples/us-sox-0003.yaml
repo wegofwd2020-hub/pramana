@@ -10,13 +10,18 @@ id: US-SOX-0003
 title: "Fraud awareness, reporting and whistleblower protection"
 clause: "docs/frameworks/framework_sox.md#section-806"
 status: draft
+# Pictures are placeholders drawn in code (make_placeholder_assets.py). Replace the PNGs
+# with real artwork, keeping the file names; paths are relative to this file.
+background: assets/us-sox-0003/office.png
 cast:
   - id: manager
     name: "Manager"
     voice: en_US-ryan-high
+    portrait: assets/us-sox-0003/manager.png
   - id: intern
     name: "Intern"
     voice: en_US-joe-medium
+    portrait: assets/us-sox-0003/intern.png
 scenes:
   - id: 1
     narration: "This lesson covers how to spot financial fraud, how to report it, and how the law protects you when you do."

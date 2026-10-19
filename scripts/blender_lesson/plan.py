@@ -13,7 +13,13 @@ from pathlib import Path
 from typing import Any
 
 from scripts.blender_lesson.layout import layout_visual
-from scripts.blender_lesson.primitives import primitive_to_dict
+from scripts.blender_lesson.primitives import (
+    CANVAS_H,
+    CANVAS_W,
+    Picture,
+    Primitive,
+    primitive_to_dict,
+)
 from scripts.blender_lesson.spec import DialogueVisual, Lesson, Scene
 
 #: Speaking-rate estimate used only when a scene's audio has not been measured.
@@ -54,6 +60,7 @@ def plan_jobs(
     work_dir: Path,
     fps: int,
     durations: dict[int, float] | None = None,
+    asset_root: Path | None = None,
 ) -> list[SceneJob]:
     """Build one job per scene.
 
@@ -63,21 +70,40 @@ def plan_jobs(
     if fps <= 0:
         raise ValueError(f"fps must be positive, got {fps}")
     measured = durations or {}
-    seats = {speaker.id: (index, speaker.name) for index, speaker in enumerate(lesson.cast)}
+    seats = {
+        speaker.id: (index, speaker.name, speaker.portrait)
+        for index, speaker in enumerate(lesson.cast)
+    }
+    background: list[Primitive] = []
+    if lesson.background is not None:
+        background = [
+            Picture(
+                x=0.0, y=0.0, w=CANVAS_W, h=CANVAS_H, path=_asset(lesson.background, asset_root)
+            )
+        ]
     jobs: list[SceneJob] = []
     for scene in lesson.scenes:
         duration = measured.get(scene.id, estimate_duration(scene.narration))
         frames = max(1, math.ceil(duration * fps))
         if isinstance(scene.visual, DialogueVisual):
-            side, name = seats[scene.visual.speaker]
+            side, name, portrait = seats[scene.visual.speaker]
             layout = layout_visual(
-                scene.visual, narration=scene.narration, speaker_name=name, side=side
+                scene.visual,
+                narration=scene.narration,
+                speaker_name=name,
+                side=side,
+                portrait=None if portrait is None else _asset(portrait, asset_root),
             )
         else:
             layout = layout_visual(scene.visual)
-        primitives = tuple(primitive_to_dict(p) for p in layout)
+        primitives = tuple(primitive_to_dict(p) for p in [*background, *layout])
         jobs.append(_job(scene, work_dir, fps, duration, frames, primitives))
     return jobs
+
+
+def _asset(path: str, root: Path | None) -> str:
+    """An asset path as the renderer needs it: joined to the spec folder when known."""
+    return str(root / path) if root is not None else path
 
 
 def _job(

@@ -19,6 +19,7 @@ from scripts.blender_lesson.primitives import (
     Box,
     Headline,
     LayoutError,
+    Picture,
     Primitive,
 )
 from scripts.blender_lesson.spec import (
@@ -37,6 +38,9 @@ BUBBLE_EDGE = 0.9
 BUBBLE_WRAP_CHARS = 36
 BUBBLE_LINE_H = 0.55
 BUBBLE_NAME_H = 0.6
+PORTRAIT_SIZE = 2.6
+PORTRAIT_EDGE = 0.4
+PORTRAIT_GAP = 0.3
 
 
 def layout_visual(
@@ -45,6 +49,7 @@ def layout_visual(
     narration: str = "",
     speaker_name: str = "",
     side: int = 0,
+    portrait: str | None = None,
 ) -> tuple[Primitive, ...]:
     """Return the primitives for one scene's visual, deterministically.
 
@@ -52,7 +57,7 @@ def layout_visual(
     on-screen name, and ``side``: 0 for the left of the frame, 1 for the right.
     """
     if isinstance(visual, DialogueVisual):
-        return _bubble(narration, speaker_name, side)
+        return _bubble(narration, speaker_name, side, portrait)
     if isinstance(visual, FlowVisual):
         return _flow(visual.steps)
     if isinstance(visual, ChecklistVisual):
@@ -64,7 +69,7 @@ def layout_visual(
     raise LayoutError(f"no layout for visual {type(visual).__name__}")
 
 
-def _bubble(text: str, name: str, side: int) -> tuple[Primitive, ...]:
+def _bubble(text: str, name: str, side: int, portrait: str | None) -> tuple[Primitive, ...]:
     """A speech bubble: the speaker's name on top, the wrapped line below."""
     if not text or not name:
         raise LayoutError("a dialogue bubble needs both a line of text and a speaker name")
@@ -72,10 +77,27 @@ def _bubble(text: str, name: str, side: int) -> tuple[Primitive, ...]:
         raise LayoutError(f"bubble side must be 0 (left) or 1 (right), got {side}")
     lines = textwrap.wrap(text, width=BUBBLE_WRAP_CHARS) or [text]
     box_h = BUBBLE_NAME_H + len(lines) * BUBBLE_LINE_H + 0.5
-    left = BUBBLE_EDGE if side == 0 else CANVAS_W - BUBBLE_EDGE - BUBBLE_W
+    out: list[Primitive] = []
+    if portrait is None:
+        left = BUBBLE_EDGE if side == 0 else CANVAS_W - BUBBLE_EDGE - BUBBLE_W
+    else:
+        portrait_x = PORTRAIT_EDGE if side == 0 else CANVAS_W - PORTRAIT_EDGE - PORTRAIT_SIZE
+        out.append(
+            Picture(
+                x=portrait_x,
+                y=_MID_Y - PORTRAIT_SIZE / 2,
+                w=PORTRAIT_SIZE,
+                h=PORTRAIT_SIZE,
+                path=portrait,
+            )
+        )
+        if side == 0:
+            left = portrait_x + PORTRAIT_SIZE + PORTRAIT_GAP
+        else:
+            left = portrait_x - PORTRAIT_GAP - BUBBLE_W
     top = _MID_Y + box_h / 2
     centre_x = left + BUBBLE_W / 2
-    out: list[Primitive] = [Box(x=left, y=top - box_h, w=BUBBLE_W, h=box_h, label="")]
+    out.append(Box(x=left, y=top - box_h, w=BUBBLE_W, h=box_h, label=""))
     out.append(Headline(x=centre_x, y=top - 0.3, text=name, size=0.4))
     first_line_y = top - BUBBLE_NAME_H - 0.25 - BUBBLE_LINE_H / 2
     for index, line in enumerate(lines):

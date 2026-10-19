@@ -31,6 +31,7 @@ from scripts.blender_lesson.primitives import (  # noqa: E402 - needs the path s
     Arrow,
     Box,
     Headline,
+    Picture,
     Primitive,
     primitive_from_dict,
 )
@@ -40,7 +41,11 @@ BOX_RGBA = (0.16, 0.36, 0.62, 1.0)
 ARROW_RGBA = (0.35, 0.35, 0.35, 1.0)
 TEXT_RGBA = (0.08, 0.08, 0.10, 1.0)
 LABEL_RGBA = (1.0, 1.0, 1.0, 1.0)
+#: A box with no label is a speech bubble: a light fill, so dark dialogue text reads clearly.
+BUBBLE_RGBA = (0.98, 0.98, 0.97, 1.0)
 LABEL_SIZE = 0.42
+#: Pictures sit behind boxes and text, which are at z = 0 and above.
+PICTURE_Z = -0.05
 
 
 class RenderError(RuntimeError):
@@ -96,6 +101,43 @@ def _text(bpy: Any, name: str, text: str, x: float, y: float, size: float, mater
     _link(bpy, obj)
 
 
+def _picture(
+    bpy: Any,
+    name: str,
+    path: str,
+    box: tuple[float, float, float, float],
+) -> None:
+    """A PNG on a quad. Emission carries the image, so lighting does not darken it."""
+    x0, y0, x1, y1 = box
+    try:
+        image = bpy.data.images.load(path, check_existing=True)
+    except RuntimeError as exc:
+        raise RenderError(f"cannot load picture {path}: {exc}") from exc
+    mat = bpy.data.materials.new(f"{name}-mat")
+    mat.use_nodes = True
+    tree = mat.node_tree
+    bsdf = tree.nodes.get("Principled BSDF")
+    if bsdf is None:
+        raise RenderError("material has no Principled BSDF node; cannot show a picture")
+    texture = tree.nodes.new("ShaderNodeTexImage")
+    texture.image = image
+    tree.links.new(texture.outputs["Color"], bsdf.inputs["Emission Color"])
+    bsdf.inputs["Emission Strength"].default_value = 1.0
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(
+        [(x0, y0, PICTURE_Z), (x1, y0, PICTURE_Z), (x1, y1, PICTURE_Z), (x0, y1, PICTURE_Z)],
+        [],
+        [(0, 1, 2, 3)],
+    )
+    uv = mesh.uv_layers.new(name="UVMap")
+    for loop_index, corner in enumerate(((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0))):
+        uv.data[loop_index].uv = corner
+    mesh.update()
+    obj = bpy.data.objects.new(name, mesh)
+    obj.data.materials.append(mat)
+    _link(bpy, obj)
+
+
 def _add_primitive(bpy: Any, index: int, primitive: Primitive, mats: dict[str, Any]) -> None:
     name = f"p{index:03d}"
     if isinstance(primitive, Box):
@@ -107,7 +149,7 @@ def _add_primitive(bpy: Any, index: int, primitive: Primitive, mats: dict[str, A
             primitive.x + primitive.w,
             primitive.y + primitive.h,
             0.0,
-            mats["box"],
+            mats["box"] if primitive.label else mats["bubble"],
         )
         # Speech bubbles are boxes with no label; their text is drawn as headlines.
         if primitive.label:
@@ -131,6 +173,13 @@ def _add_primitive(bpy: Any, index: int, primitive: Primitive, mats: dict[str, A
             primitive.y2 + thickness,
             0.0,
             mats["arrow"],
+        )
+    elif isinstance(primitive, Picture):
+        _picture(
+            bpy,
+            name,
+            primitive.path,
+            (primitive.x, primitive.y, primitive.x + primitive.w, primitive.y + primitive.h),
         )
     elif isinstance(primitive, Headline):
         _text(bpy, name, primitive.text, primitive.x, primitive.y, primitive.size, mats["text"])
@@ -185,6 +234,7 @@ def build_scene(bpy: Any, job: dict[str, Any]) -> list[Primitive]:
         "arrow": _material(bpy, "arrow", ARROW_RGBA),
         "text": _material(bpy, "text", TEXT_RGBA),
         "label": _material(bpy, "label", LABEL_RGBA),
+        "bubble": _material(bpy, "bubble", BUBBLE_RGBA),
     }
     for index, primitive in enumerate(primitives):
         _add_primitive(bpy, index, primitive, mats)

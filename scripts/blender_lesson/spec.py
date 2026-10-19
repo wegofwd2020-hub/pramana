@@ -85,8 +85,17 @@ Visual = Annotated[
 ]
 
 
+def _relative_asset_path(path: str | None) -> str | None:
+    """Asset paths are relative to the spec file, so a lesson can move with its assets."""
+    if path is None:
+        return None
+    if path.startswith("/") or ".." in Path(path).parts:
+        raise ValueError(f"asset path must be relative to the spec and stay inside it: {path!r}")
+    return path
+
+
 class Speaker(_Strict):
-    """A cast member: the name shown in the bubble and the Piper voice that speaks their lines."""
+    """A cast member: the name shown in the bubble, the voice, and an optional portrait."""
 
     id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,15}$")
     name: str = Field(min_length=1, max_length=40)
@@ -94,6 +103,12 @@ class Speaker(_Strict):
         pattern=r"^[A-Za-z0-9._-]+$",
         description="Piper voice name, for example en_US-ryan-high",
     )
+    portrait: str | None = Field(default=None, min_length=1, max_length=200)
+
+    @field_validator("portrait")
+    @classmethod
+    def _portrait_is_relative(cls, value: str | None) -> str | None:
+        return _relative_asset_path(value)
 
 
 class Scene(_Strict):
@@ -116,7 +131,13 @@ class Lesson(_Strict):
     clause: str = Field(min_length=1, description="Framework anchor the lesson teaches")
     status: Literal["draft", "approved"] = "draft"
     cast: list[Speaker] = Field(default_factory=list, max_length=MAX_CAST)
+    background: str | None = Field(default=None, min_length=1, max_length=200)
     scenes: list[Scene] = Field(min_length=1, max_length=20)
+
+    @field_validator("background")
+    @classmethod
+    def _background_is_relative(cls, value: str | None) -> str | None:
+        return _relative_asset_path(value)
 
     @model_validator(mode="after")
     def _dialogue_refers_to_the_cast(self) -> Lesson:

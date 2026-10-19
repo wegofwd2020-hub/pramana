@@ -779,3 +779,162 @@ class TestDialoguePlanAndVoices:
         )
         assert code == cli.EXIT_OK
         assert '"lesson": "US-SOX-0003"' in capsys.readouterr().out
+
+
+# ------------------------------------------------------------ pictures
+
+
+class TestPictures:
+    """Portraits, the office background and the picture primitive."""
+
+    def test_a_picture_round_trips_through_the_job_file_form(self) -> None:
+        from scripts.blender_lesson.primitives import Picture
+
+        original = Picture(x=0.0, y=0.0, w=16.0, h=9.0, path="/mock/office.png")
+        assert primitive_from_dict(primitive_to_dict(original)) == original
+        assert primitive_to_dict(original)["type"] == "picture"
+
+    def test_a_portrait_sits_on_the_outer_edge_of_its_side(self) -> None:
+        from scripts.blender_lesson.primitives import Picture
+
+        left = [
+            p
+            for p in layout_visual(
+                DialogueVisual(kind="dialogue", speaker="a"),
+                narration="Hi.",
+                speaker_name="A",
+                side=0,
+                portrait="p.png",
+            )
+            if isinstance(p, Picture)
+        ]
+        right = [
+            p
+            for p in layout_visual(
+                DialogueVisual(kind="dialogue", speaker="b"),
+                narration="Hi.",
+                speaker_name="B",
+                side=1,
+                portrait="p.png",
+            )
+            if isinstance(p, Picture)
+        ]
+        assert left[0].x < 1.0
+        assert right[0].x + right[0].w > CANVAS_W - 1.0
+
+    def test_the_bubble_moves_clear_of_the_portrait(self) -> None:
+        visual = DialogueVisual(kind="dialogue", speaker="a")
+        with_portrait = layout_visual(
+            visual, narration="Hi.", speaker_name="A", side=0, portrait="p.png"
+        )
+        bubble = next(p for p in with_portrait if isinstance(p, Box))
+        assert bubble.x > 3.0  # the portrait ends at 3.0
+
+    def test_the_background_is_the_first_primitive_of_every_scene(self, tmp_path: Path) -> None:
+        from scripts.blender_lesson.primitives import Picture
+
+        lesson, _ = load_lesson(EXAMPLES / "us-sox-0003.yaml")
+        jobs = plan_jobs(lesson, tmp_path / "work", 24, asset_root=EXAMPLES)
+        for job in jobs:
+            first = job.primitives[0]
+            assert first["type"] == "picture"
+            assert first["path"].endswith("assets/us-sox-0003/office.png")
+            assert Picture(**{k: v for k, v in first.items() if k != "type"}).w == CANVAS_W
+
+    def test_a_speaker_portrait_is_resolved_against_the_asset_root(self, tmp_path: Path) -> None:
+        lesson, _ = load_lesson(EXAMPLES / "us-sox-0003.yaml")
+        jobs = plan_jobs(lesson, tmp_path / "work", 24, asset_root=EXAMPLES)
+        second = next(job for job in jobs if job.scene_id == 2)
+        paths = [p["path"] for p in second.primitives if p["type"] == "picture"]
+        assert str(EXAMPLES / "assets/us-sox-0003/intern.png") in paths
+
+    def test_a_portrait_path_that_escapes_the_spec_folder_is_refused(self, tmp_path: Path) -> None:
+        data = _lesson_dict(
+            cast=[
+                {"id": "manager", "name": "M", "voice": "v", "portrait": "../secret.png"},
+                {"id": "intern", "name": "I", "voice": "v"},
+            ]
+        )
+        path = tmp_path / "lesson.yaml"
+        path.write_text(yaml.safe_dump(data), encoding="utf-8")
+        with pytest.raises(SpecError, match="relative"):
+            load_lesson(path)
+
+    def test_an_absolute_background_path_is_refused(self, tmp_path: Path) -> None:
+        path = tmp_path / "lesson.yaml"
+        path.write_text(
+            yaml.safe_dump(_lesson_dict(background="/etc/office.png")), encoding="utf-8"
+        )
+        with pytest.raises(SpecError, match="relative"):
+            load_lesson(path)
+
+    def test_a_missing_picture_stops_the_run_before_rendering(self, tmp_path: Path) -> None:
+        data = _lesson_dict(background="assets/not-there.png")
+        spec = tmp_path / "lesson.yaml"
+        spec.write_text(yaml.safe_dump(data), encoding="utf-8")
+        code = cli.main([str(spec), "--out-dir", str(tmp_path / "out"), "--dry-run"])
+        assert code == cli.EXIT_SPEC
+
+    def test_the_renderer_loads_each_picture_as_an_emissive_texture(self, tmp_path: Path) -> None:
+        bpy = MagicMock()
+        job = {
+            "scene_id": 1,
+            "fps": 24,
+            "frames": 10,
+            "frames_dir": str(tmp_path / "frames"),
+            "resolution": [1280, 720],
+            "primitives": [
+                {
+                    "type": "picture",
+                    "x": 0.0,
+                    "y": 0.0,
+                    "w": 16.0,
+                    "h": 9.0,
+                    "path": "/mock/office.png",
+                }
+            ],
+        }
+        build_scene(bpy, job)
+        bpy.data.images.load.assert_called_once_with("/mock/office.png", check_existing=True)
+
+    def test_a_bubble_gets_the_light_fill_and_a_box_keeps_its_colour(self, tmp_path: Path) -> None:
+        from scripts.blender_lesson import render_bpy
+
+        bpy = MagicMock()
+        job = {
+            "scene_id": 1,
+            "fps": 24,
+            "frames": 10,
+            "frames_dir": str(tmp_path / "frames"),
+            "resolution": [1280, 720],
+            "primitives": [
+                {"type": "box", "x": 1.0, "y": 1.0, "w": 2.0, "h": 1.0, "label": "A"},
+                {"type": "box", "x": 4.0, "y": 1.0, "w": 2.0, "h": 1.0, "label": ""},
+            ],
+        }
+        build_scene(bpy, job)
+        names = [c.args[0] for c in bpy.data.materials.new.call_args_list]
+        assert "bubble" in names
+        assert render_bpy.BUBBLE_RGBA != render_bpy.BOX_RGBA
+
+    def test_the_placeholder_generator_writes_three_pictures(self, tmp_path: Path) -> None:
+        pytest.importorskip("PIL")
+        from PIL import Image
+
+        from scripts.blender_lesson.make_placeholder_assets import generate
+
+        paths = generate(tmp_path / "assets")
+        assert [p.name for p in paths] == ["manager.png", "intern.png", "office.png"]
+        with Image.open(paths[2]) as office:
+            assert office.size == (1920, 1080)
+        with Image.open(paths[0]) as portrait:
+            assert portrait.size == (512, 512)
+
+    def test_the_draft_assets_match_the_generator(self, tmp_path: Path) -> None:
+        pytest.importorskip("PIL")
+        from scripts.blender_lesson.make_placeholder_assets import generate
+
+        fresh = generate(tmp_path / "assets")
+        for path in fresh:
+            shipped = EXAMPLES / "assets" / "us-sox-0003" / path.name
+            assert shipped.read_bytes() == path.read_bytes(), f"{path.name} is out of date"

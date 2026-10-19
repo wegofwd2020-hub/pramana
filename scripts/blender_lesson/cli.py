@@ -57,6 +57,21 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _asset_paths(lesson: Lesson) -> list[str]:
+    paths = [speaker.portrait for speaker in lesson.cast if speaker.portrait is not None]
+    if lesson.background is not None:
+        paths.append(lesson.background)
+    return paths
+
+
+def _missing_assets(lesson: Lesson, root: Path) -> list[str]:
+    return [path for path in _asset_paths(lesson) if not (root / path).is_file()]
+
+
+def _asset_hashes(lesson: Lesson, root: Path) -> dict[str, str]:
+    return {path: _sha256(root / path) for path in _asset_paths(lesson)}
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Render a lesson spec to MP4.")
     parser.add_argument("spec", type=Path, help="lesson spec (YAML)")
@@ -198,6 +213,7 @@ def _write_outputs(
         "blender": _blender_version(args),
         "piper_model": args.piper_model.name if args.piper_model else None,
         "cast_voices": {speaker.id: speaker.voice for speaker in lesson.cast},
+        "assets": _asset_hashes(lesson, args.spec.parent),
         "fps": args.fps,
         "resolution": [1280, 720],
         "scene_durations_s": {str(j.scene_id): round(j.duration_s, 3) for j in jobs},
@@ -224,11 +240,16 @@ def main(argv: list[str] | None = None) -> int:
         )
         return EXIT_SPEC
 
+    missing = _missing_assets(lesson, args.spec.parent)
+    if missing:
+        print(f"error: missing asset(s): {', '.join(missing)}", file=sys.stderr)
+        return EXIT_SPEC
+
     out_dir: Path = args.out_dir
     work = out_dir / "work"
 
     if args.dry_run:
-        jobs = plan_jobs(lesson, work, args.fps)
+        jobs = plan_jobs(lesson, work, args.fps, asset_root=args.spec.parent)
         print(json.dumps(_plan_summary(lesson, jobs), indent=2))
         return EXIT_OK
 
@@ -238,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: narration: {exc}", file=sys.stderr)
         return EXIT_NARRATION
 
-    jobs = plan_jobs(lesson, work, args.fps, durations)
+    jobs = plan_jobs(lesson, work, args.fps, durations, asset_root=args.spec.parent)
     try:
         for job in jobs:
             _render_frames(job, work / f"scene-{job.scene_id:02d}" / "job.json", args)

@@ -42,7 +42,18 @@ class Headline:
     size: float
 
 
-Primitive = Box | Arrow | Headline
+@dataclass(frozen=True)
+class Picture:
+    """A PNG drawn as a flat image over a rectangle. ``path`` is absolute in the job file."""
+
+    x: float
+    y: float
+    w: float
+    h: float
+    path: str
+
+
+Primitive = Box | Arrow | Headline | Picture
 
 
 class LayoutError(ValueError):
@@ -51,7 +62,7 @@ class LayoutError(ValueError):
 
 def primitive_to_dict(primitive: Primitive) -> dict[str, Any]:
     """Serialise a primitive with a ``type`` tag, for the job file."""
-    tag = {Box: "box", Arrow: "arrow", Headline: "headline"}[type(primitive)]
+    tag = {Box: "box", Arrow: "arrow", Headline: "headline", Picture: "picture"}[type(primitive)]
     return {"type": tag, **asdict(primitive)}
 
 
@@ -65,4 +76,6 @@ def primitive_from_dict(data: dict[str, Any]) -> Primitive:
         return Arrow(**body)
     if kind == "headline":
         return Headline(**body)
+    if kind == "picture":
+        return Picture(**body)
     raise LayoutError(f"unknown primitive type {kind!r}")
