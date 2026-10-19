@@ -9,6 +9,7 @@ skipped when it is not installed.
 
 from __future__ import annotations
 
+import argparse
 import json
 import shutil
 import stat
@@ -589,3 +590,36 @@ class TestConcatListPaths:
             (clips_dir / name).write_bytes(b"x")
         text = build_concat_list([clips_dir / "scene-01.mp4"], clips_dir)
         assert (clips_dir / text.split("'")[1]).is_file()
+
+
+class TestStaleFrames:
+    """Frames from an earlier run must not be counted towards this run's frame total."""
+
+    def test_stale_frames_are_cleared_before_blender_runs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from scripts.blender_lesson import cli
+        from scripts.blender_lesson.plan import plan_jobs
+        from scripts.blender_lesson.spec import load_lesson
+
+        lesson, _ = load_lesson(SAMPLE)
+        job = plan_jobs(lesson, tmp_path / "work", 24, {s.id: 1.0 for s in lesson.scenes})[0]
+        job.frames_dir.mkdir(parents=True)
+        for index in range(1, 6):  # five frames from an earlier, longer run
+            (job.frames_dir / f"frame_{index:04d}.png").write_bytes(b"old")
+
+        seen_before_blender: list[int] = []
+
+        def _fake_blender(cmd: list[str]) -> str:
+            # Blender writes exactly the job's frame count; record what was there first.
+            seen_before_blender.append(len(list(job.frames_dir.glob("frame_*.png"))))
+            for index in range(1, job.frames + 1):
+                (job.frames_dir / f"frame_{index:04d}.png").write_bytes(b"new")
+            return ""
+
+        monkeypatch.setattr(cli, "run_tool", _fake_blender)
+        args = argparse.Namespace(blender="blender")
+        cli._render_frames(job, tmp_path / "work" / "job.json", args)  # type: ignore[arg-type]
+
+        assert seen_before_blender == [0]
+        assert len(list(job.frames_dir.glob("frame_*.png"))) == job.frames

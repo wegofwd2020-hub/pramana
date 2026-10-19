@@ -101,6 +101,12 @@ def _narrate(lesson: Lesson, out_dir: Path, args: argparse.Namespace) -> dict[in
 
 def _render_frames(job: SceneJob, job_file: Path, args: argparse.Namespace) -> None:
     job_file.parent.mkdir(parents=True, exist_ok=True)
+    # Frames left by an earlier run would be counted with this run's frames, so
+    # clear them first. Narration length can change between runs, and a stale
+    # tail would make the frame count wrong.
+    job.frames_dir.mkdir(parents=True, exist_ok=True)
+    for stale in job.frames_dir.glob("frame_*.png"):
+        stale.unlink()
     job_file.write_text(json.dumps(job.to_json(), indent=2), encoding="utf-8")
     run_tool(
         [
