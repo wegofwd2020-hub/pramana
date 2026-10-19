@@ -63,7 +63,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--fps", type=int, default=24)
     parser.add_argument("--blender", default="blender", help="blender executable")
-    parser.add_argument("--piper", default="piper", help="piper executable")
+    parser.add_argument("--python", default="python3", help="python that has piper-tts installed")
     parser.add_argument("--piper-model", type=Path, help="Piper .onnx voice model")
     parser.add_argument("--ffmpeg", default="ffmpeg")
     parser.add_argument("--ffprobe", default="ffprobe")
@@ -94,7 +94,7 @@ def _narrate(lesson: Lesson, out_dir: Path, args: argparse.Namespace) -> dict[in
     durations: dict[int, float] = {}
     for scene in lesson.scenes:
         wav = out_dir / "narration" / f"scene-{scene.id:02d}.wav"
-        synthesize(scene.narration, wav, piper_bin=args.piper, model=args.piper_model)
+        synthesize(scene.narration, wav, python_bin=args.python, model=args.piper_model)
         durations[scene.id] = probe_duration(wav, ffprobe=args.ffprobe)
     return durations
 

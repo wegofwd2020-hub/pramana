@@ -79,6 +79,14 @@ class Scene(_Strict):
     narration: str = Field(min_length=1, max_length=MAX_NARRATION_CHARS)
     visual: Visual
 
+    @field_validator("narration")
+    @classmethod
+    def _single_line(cls, text: str) -> str:
+        # Piper synthesises one line at a time; a line break would split the scene.
+        if "\n" in text or "\r" in text:
+            raise ValueError("narration must be a single line")
+        return text
+
 
 class Lesson(_Strict):
     id: str = Field(pattern=r"^[A-Za-z0-9._-]+$")

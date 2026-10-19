@@ -262,17 +262,46 @@ class TestAssemble:
 
 
 class TestNarrate:
-    def test_piper_gets_the_model_and_output_but_not_the_text(self, tmp_path: Path) -> None:
-        cmd = build_piper_cmd("piper", tmp_path / "v.onnx", tmp_path / "o.wav")
-        assert cmd[:1] == ["piper"]
-        assert "--model" in cmd and "--output_file" in cmd
-        assert all("hello" not in part for part in cmd)
+    def test_piper_is_invoked_as_a_module_with_the_voice_path(self, tmp_path: Path) -> None:
+        model = tmp_path / "en_US-lessac-medium.onnx"
+        cmd = build_piper_cmd("python3", model, tmp_path / "o.wav")
+        assert cmd[:3] == ["python3", "-m", "piper"]
+        assert cmd[cmd.index("-m", 2) + 1] == str(model)
+        assert cmd[cmd.index("-f") + 1] == str(tmp_path / "o.wav")
+
+    def test_the_text_never_appears_on_the_command_line(self, tmp_path: Path) -> None:
+        # Narration is fed on stdin, so a line that looks like an option cannot be parsed as one.
+        cmd = build_piper_cmd("python3", tmp_path / "v.onnx", tmp_path / "o.wav")
+        assert "--" not in cmd
+        assert not any("-not a flag" in part for part in cmd)
+
+    def test_a_multi_line_narration_is_rejected_by_the_spec(self) -> None:
+        from pydantic import ValidationError
+
+        from scripts.blender_lesson.spec import Scene
+
+        with pytest.raises(ValidationError, match="single line"):
+            Scene.model_validate(
+                {
+                    "id": 1,
+                    "narration": "First line.\nSecond line.",
+                    "visual": {"kind": "text", "headline": "Hi"},
+                }
+            )
 
     def test_a_missing_voice_model_is_a_narration_error(self, tmp_path: Path) -> None:
         from scripts.blender_lesson.narrate import synthesize
 
         with pytest.raises(NarrationError, match="voice model not found"):
-            synthesize("hi", tmp_path / "o.wav", piper_bin="piper", model=tmp_path / "x.onnx")
+            synthesize("hi", tmp_path / "o.wav", python_bin="python3", model=tmp_path / "x.onnx")
+
+    def test_a_voice_without_its_json_config_is_a_narration_error(self, tmp_path: Path) -> None:
+        from scripts.blender_lesson.narrate import synthesize
+
+        model = tmp_path / "v.onnx"
+        model.write_bytes(b"model")
+        with pytest.raises(NarrationError, match="config not found"):
+            synthesize("hi", tmp_path / "o.wav", python_bin="python3", model=model)
 
     def test_probing_a_missing_file_is_a_narration_error(self, tmp_path: Path) -> None:
         with pytest.raises(NarrationError):
@@ -370,10 +399,14 @@ for i in range(1, job["frames"] + 1):
     (frames / f"frame_{{i:04d}}.png").write_bytes(png)
 """
 
-FAKE_PIPER = """#!{python}
+FAKE_PYTHON = """#!{python}
+# Stands in for `python3` with piper-tts installed. Only `-m piper` is handled.
 import sys, wave
+argv = sys.argv[1:]
+if argv[:2] != ["-m", "piper"]:
+    sys.exit(0)
+out = argv[argv.index("-f") + 1]
 text = sys.stdin.read()
-out = sys.argv[sys.argv.index("--output_file") + 1]
 seconds = max(0.5, len(text.split()) / 2.5)
 rate = 8000
 with wave.open(out, "wb") as w:
@@ -395,10 +428,11 @@ def fakes(tmp_path: Path) -> dict[str, str]:
     blender = _fake_tool(
         tmp_path, "fake-blender", FAKE_BLENDER.format(python=sys.executable, fail=False, png=png)
     )
-    piper = _fake_tool(tmp_path, "fake-piper", FAKE_PIPER.format(python=sys.executable))
-    model = tmp_path / "voice.onnx"
+    python = _fake_tool(tmp_path, "fake-python", FAKE_PYTHON.format(python=sys.executable))
+    model = tmp_path / "en_US-test-medium.onnx"
     model.write_bytes(b"not a real model; the fake piper ignores it")
-    return {"blender": blender, "piper": piper, "model": str(model)}
+    (tmp_path / "en_US-test-medium.onnx.json").write_text("{}", encoding="utf-8")
+    return {"blender": blender, "python": python, "model": str(model)}
 
 
 class TestCli:
@@ -450,8 +484,8 @@ class TestCli:
                 "4",
                 "--blender",
                 fakes["blender"],
-                "--piper",
-                fakes["piper"],
+                "--python",
+                fakes["python"],
                 "--piper-model",
                 fakes["model"],
             ]
@@ -491,8 +525,8 @@ class TestCli:
                 str(tmp_path / "out"),
                 "--blender",
                 failing,
-                "--piper",
-                fakes["piper"],
+                "--python",
+                fakes["python"],
                 "--piper-model",
                 fakes["model"],
             ]
