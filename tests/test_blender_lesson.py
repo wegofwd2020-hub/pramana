@@ -13,6 +13,7 @@ import json
 import shutil
 import stat
 import struct
+import subprocess
 import sys
 import zlib
 from itertools import pairwise
@@ -30,19 +31,19 @@ from scripts.blender_lesson.assemble import (
     format_srt_time,
     run_tool,
 )
-from scripts.blender_lesson.layout import (
+from scripts.blender_lesson.layout import layout_visual
+from scripts.blender_lesson.narrate import NarrationError, build_piper_cmd, probe_duration
+from scripts.blender_lesson.plan import estimate_duration, plan_jobs, timeline
+from scripts.blender_lesson.primitives import (
     CANVAS_H,
     CANVAS_W,
     Arrow,
     Box,
     Headline,
     LayoutError,
-    layout_visual,
     primitive_from_dict,
     primitive_to_dict,
 )
-from scripts.blender_lesson.narrate import NarrationError, build_piper_cmd, probe_duration
-from scripts.blender_lesson.plan import estimate_duration, plan_jobs, timeline
 from scripts.blender_lesson.render_bpy import RenderError, build_scene
 from scripts.blender_lesson.spec import (
     ChecklistVisual,
@@ -532,3 +533,34 @@ class TestCli:
             ]
         )
         assert code == cli.EXIT_RENDER
+
+
+# ------------------------------------------------------------ render_bpy imports
+
+
+class TestRenderBpyImportsInBlender:
+    """Blender's bundled Python has no pydantic or yaml, so render_bpy must not need them.
+
+    The check runs in a child interpreter with both packages blocked, which is the
+    condition inside Blender. An ordinary import in this test process would miss
+    a regression, because pydantic is installed here.
+    """
+
+    def test_render_bpy_imports_with_pydantic_and_yaml_blocked(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        code = (
+            "import sys\n"
+            "sys.modules['pydantic'] = None\n"
+            "sys.modules['yaml'] = None\n"
+            f"sys.path.insert(0, {str(repo)!r})\n"
+            "import scripts.blender_lesson.render_bpy as rb\n"
+            "print(rb.CANVAS_W, rb.CANVAS_H)\n"
+        )
+        proc = subprocess.run(  # noqa: S603 - fixed interpreter and code string
+            [sys.executable, "-I", "-c", code],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.strip() == "16.0 9.0"

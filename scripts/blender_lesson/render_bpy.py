@@ -25,7 +25,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from scripts.blender_lesson.layout import (  # noqa: E402 - needs the path set above
+from scripts.blender_lesson.primitives import (  # noqa: E402 - needs the path set above
     CANVAS_H,
     CANVAS_W,
     Arrow,

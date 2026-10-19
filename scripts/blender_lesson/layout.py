@@ -10,9 +10,15 @@ canvas is 16 units wide and 9 units high, which matches a 16:9 frame.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from typing import Any
-
+from scripts.blender_lesson.primitives import (
+    CANVAS_H,
+    CANVAS_W,
+    Arrow,
+    Box,
+    Headline,
+    LayoutError,
+    Primitive,
+)
 from scripts.blender_lesson.spec import (
     ChecklistVisual,
     FlowVisual,
@@ -21,42 +27,8 @@ from scripts.blender_lesson.spec import (
     Visual,
 )
 
-CANVAS_W = 16.0
-CANVAS_H = 9.0
 _MARGIN = 1.0
 _MID_Y = CANVAS_H / 2
-
-
-@dataclass(frozen=True)
-class Box:
-    x: float
-    y: float
-    w: float
-    h: float
-    label: str
-
-
-@dataclass(frozen=True)
-class Arrow:
-    x1: float
-    y1: float
-    x2: float
-    y2: float
-
-
-@dataclass(frozen=True)
-class Headline:
-    x: float
-    y: float
-    text: str
-    size: float
-
-
-Primitive = Box | Arrow | Headline
-
-
-class LayoutError(ValueError):
-    """A visual cannot be laid out on the canvas."""
 
 
 def layout_visual(visual: Visual) -> tuple[Primitive, ...]:
@@ -125,22 +97,3 @@ def _roster(groups: list[str]) -> tuple[Primitive, ...]:
         )
         for i, label in enumerate(groups)
     )
-
-
-def primitive_to_dict(primitive: Primitive) -> dict[str, Any]:
-    """Serialise a primitive with a ``type`` tag, for the job file."""
-    tag = {Box: "box", Arrow: "arrow", Headline: "headline"}[type(primitive)]
-    return {"type": tag, **asdict(primitive)}
-
-
-def primitive_from_dict(data: dict[str, Any]) -> Primitive:
-    """Rebuild a primitive from its job-file form. Inverse of ``primitive_to_dict``."""
-    body = {k: v for k, v in data.items() if k != "type"}
-    kind = data.get("type")
-    if kind == "box":
-        return Box(**body)
-    if kind == "arrow":
-        return Arrow(**body)
-    if kind == "headline":
-        return Headline(**body)
-    raise LayoutError(f"unknown primitive type {kind!r}")

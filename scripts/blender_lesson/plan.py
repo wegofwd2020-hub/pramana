@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from scripts.blender_lesson.layout import layout_visual, primitive_to_dict
+from scripts.blender_lesson.layout import layout_visual
+from scripts.blender_lesson.primitives import primitive_to_dict
 from scripts.blender_lesson.spec import Lesson, Scene
 
 #: Speaking-rate estimate used only when a scene's audio has not been measured.
