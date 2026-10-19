@@ -20,10 +20,14 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 MAX_NARRATION_CHARS = 400
 MAX_LABEL_CHARS = 40
+#: A speech bubble holds about five wrapped lines; longer text overflows the frame.
+MAX_BUBBLE_CHARS = 160
+#: The layout puts the first speaker on the left and the second on the right.
+MAX_CAST = 2
 
 
 class SpecError(Exception):
@@ -68,10 +72,28 @@ class TextVisual(_Strict):
     headline: str = Field(min_length=1, max_length=60)
 
 
+class DialogueVisual(_Strict):
+    """A speech bubble from one cast member. The scene's narration is the bubble text."""
+
+    kind: Literal["dialogue"]
+    speaker: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,15}$")
+
+
 Visual = Annotated[
-    FlowVisual | ChecklistVisual | RosterVisual | TextVisual,
+    FlowVisual | ChecklistVisual | RosterVisual | TextVisual | DialogueVisual,
     Field(discriminator="kind"),
 ]
+
+
+class Speaker(_Strict):
+    """A cast member: the name shown in the bubble and the Piper voice that speaks their lines."""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,15}$")
+    name: str = Field(min_length=1, max_length=40)
+    voice: str = Field(
+        pattern=r"^[A-Za-z0-9._-]+$",
+        description="Piper voice name, for example en_US-ryan-high",
+    )
 
 
 class Scene(_Strict):
@@ -93,7 +115,27 @@ class Lesson(_Strict):
     title: str = Field(min_length=1, max_length=120)
     clause: str = Field(min_length=1, description="Framework anchor the lesson teaches")
     status: Literal["draft", "approved"] = "draft"
+    cast: list[Speaker] = Field(default_factory=list, max_length=MAX_CAST)
     scenes: list[Scene] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def _dialogue_refers_to_the_cast(self) -> Lesson:
+        ids = [speaker.id for speaker in self.cast]
+        if len(set(ids)) != len(ids):
+            raise ValueError(f"cast ids must be unique, got {ids}")
+        for scene in self.scenes:
+            if not isinstance(scene.visual, DialogueVisual):
+                continue
+            if scene.visual.speaker not in ids:
+                raise ValueError(
+                    f"scene {scene.id}: speaker {scene.visual.speaker!r} is not in the cast {ids}"
+                )
+            if len(scene.narration) > MAX_BUBBLE_CHARS:
+                raise ValueError(
+                    f"scene {scene.id}: a dialogue line is {len(scene.narration)} characters; "
+                    f"the bubble holds {MAX_BUBBLE_CHARS}"
+                )
+        return self
 
     @field_validator("scenes")
     @classmethod

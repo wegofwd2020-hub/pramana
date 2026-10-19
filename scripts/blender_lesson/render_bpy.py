@@ -109,15 +109,17 @@ def _add_primitive(bpy: Any, index: int, primitive: Primitive, mats: dict[str, A
             0.0,
             mats["box"],
         )
-        _text(
-            bpy,
-            f"{name}-label",
-            primitive.label,
-            primitive.x + primitive.w / 2,
-            primitive.y + primitive.h / 2,
-            LABEL_SIZE,
-            mats["label"],
-        )
+        # Speech bubbles are boxes with no label; their text is drawn as headlines.
+        if primitive.label:
+            _text(
+                bpy,
+                f"{name}-label",
+                primitive.label,
+                primitive.x + primitive.w / 2,
+                primitive.y + primitive.h / 2,
+                LABEL_SIZE,
+                mats["label"],
+            )
     elif isinstance(primitive, Arrow):
         thickness = 0.06
         _quad(

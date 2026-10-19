@@ -19,9 +19,11 @@ import sys
 import zlib
 from itertools import pairwise
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+import yaml
 
 from scripts.blender_lesson import cli
 from scripts.blender_lesson.assemble import (
@@ -48,6 +50,7 @@ from scripts.blender_lesson.primitives import (
 from scripts.blender_lesson.render_bpy import RenderError, build_scene
 from scripts.blender_lesson.spec import (
     ChecklistVisual,
+    DialogueVisual,
     FlowVisual,
     Lesson,
     SpecError,
@@ -623,3 +626,156 @@ class TestStaleFrames:
 
         assert seen_before_blender == [0]
         assert len(list(job.frames_dir.glob("frame_*.png"))) == job.frames
+
+
+# ------------------------------------------------------------ dialogue
+
+
+EXAMPLES = Path(__file__).resolve().parents[1] / "scripts" / "blender_lesson" / "examples"
+
+
+def _lesson_dict(**overrides: object) -> dict[str, object]:
+    """A minimal valid lesson with two cast members and one dialogue scene. Mock data."""
+    base: dict[str, object] = {
+        "id": "DLG-1",
+        "title": "Mock dialogue",
+        "clause": "docs/frameworks/mock.md#x",
+        "cast": [
+            {"id": "manager", "name": "Manager", "voice": "en_US-ryan-high"},
+            {"id": "intern", "name": "Intern", "voice": "en_US-joe-medium"},
+        ],
+        "scenes": [
+            {
+                "id": 1,
+                "narration": "Hello there.",
+                "visual": {"kind": "dialogue", "speaker": "manager"},
+            },
+        ],
+    }
+    base.update(overrides)
+    return base
+
+
+class TestDialogueSpec:
+    def _write(self, tmp_path: Path, data: dict[str, object]) -> Path:
+        path = tmp_path / "lesson.yaml"
+        path.write_text(yaml.safe_dump(data), encoding="utf-8")
+        return path
+
+    def test_a_valid_dialogue_lesson_loads(self, tmp_path: Path) -> None:
+        lesson, _ = load_lesson(self._write(tmp_path, _lesson_dict()))
+        assert [s.id for s in lesson.cast] == ["manager", "intern"]
+        assert lesson.scenes[0].visual.speaker == "manager"  # type: ignore[union-attr]
+
+    def test_a_speaker_missing_from_the_cast_is_refused(self, tmp_path: Path) -> None:
+        data = _lesson_dict()
+        data["scenes"] = [
+            {"id": 1, "narration": "Hi.", "visual": {"kind": "dialogue", "speaker": "nobody"}}
+        ]
+        with pytest.raises(SpecError, match="not in the cast"):
+            load_lesson(self._write(tmp_path, data))
+
+    def test_a_dialogue_line_too_long_for_the_bubble_is_refused(self, tmp_path: Path) -> None:
+        data = _lesson_dict()
+        data["scenes"] = [
+            {
+                "id": 1,
+                "narration": "word " * 40,
+                "visual": {"kind": "dialogue", "speaker": "manager"},
+            }
+        ]
+        with pytest.raises(SpecError, match="bubble holds"):
+            load_lesson(self._write(tmp_path, data))
+
+    def test_duplicate_cast_ids_are_refused(self, tmp_path: Path) -> None:
+        data = _lesson_dict(
+            cast=[
+                {"id": "manager", "name": "A", "voice": "v1"},
+                {"id": "manager", "name": "B", "voice": "v2"},
+            ]
+        )
+        with pytest.raises(SpecError, match="cast ids must be unique"):
+            load_lesson(self._write(tmp_path, data))
+
+    def test_more_than_two_speakers_is_refused(self, tmp_path: Path) -> None:
+        cast = [{"id": f"s{i}", "name": f"S{i}", "voice": "v"} for i in range(3)]
+        with pytest.raises(SpecError):
+            load_lesson(self._write(tmp_path, _lesson_dict(cast=cast)))
+
+    def test_the_us_sox_0003_draft_script_validates(self) -> None:
+        lesson, _ = load_lesson(EXAMPLES / "us-sox-0003.yaml")
+        assert lesson.status == "draft"
+        assert [s.id for s in lesson.cast] == ["manager", "intern"]
+        assert len(lesson.scenes) == 11
+
+
+class TestDialogueLayout:
+    def _bubble(
+        self, side: int, text: str = "A short line.", name: str = "Intern"
+    ) -> tuple[Any, ...]:
+        visual = DialogueVisual(kind="dialogue", speaker="intern")
+        return layout_visual(visual, narration=text, speaker_name=name, side=side)
+
+    def test_the_first_speaker_sits_left_and_the_second_right(self) -> None:
+        left = next(p for p in self._bubble(0) if isinstance(p, Box))
+        right = next(p for p in self._bubble(1) if isinstance(p, Box))
+        assert left.x + left.w / 2 < CANVAS_W / 2
+        assert right.x + right.w / 2 > CANVAS_W / 2
+
+    def test_the_name_and_the_line_are_drawn_as_headlines(self) -> None:
+        texts = [
+            p.text
+            for p in self._bubble(0, text="Hello there.", name="Intern")
+            if isinstance(p, Headline)
+        ]
+        assert texts[0] == "Intern"
+        assert " ".join(texts[1:]) == "Hello there."
+
+    def test_every_wrapped_line_fits_the_bubble(self) -> None:
+        long = " ".join(["needs-careful-review"] * 8)
+        lines = [p.text for p in self._bubble(0, text=long) if isinstance(p, Headline)][1:]
+        assert max(len(line) for line in lines) <= 36
+
+    def test_a_bubble_without_text_or_name_is_a_layout_error(self) -> None:
+        with pytest.raises(LayoutError, match="needs both"):
+            self._bubble(0, text="")
+
+    def test_a_side_other_than_zero_or_one_is_a_layout_error(self) -> None:
+        with pytest.raises(LayoutError, match="side"):
+            self._bubble(2)
+
+
+class TestDialoguePlanAndVoices:
+    def test_the_planned_bubble_carries_the_speaker_name(self, tmp_path: Path) -> None:
+        lesson, _ = load_lesson(EXAMPLES / "us-sox-0003.yaml")
+        jobs = plan_jobs(lesson, tmp_path / "work", 24)
+        second = next(job for job in jobs if job.scene_id == 2)
+        texts = [p.get("text") for p in second.primitives if p["type"] == "headline"]
+        assert "Intern" in texts
+
+    def test_each_speaker_uses_their_own_voice_model(self, tmp_path: Path) -> None:
+        lesson, _ = load_lesson(EXAMPLES / "us-sox-0003.yaml")
+        args = argparse.Namespace(
+            piper_model=tmp_path / "narrator.onnx", voices_dir=tmp_path / "voices"
+        )
+        by_scene = {s.id: cli._voice_model(s.visual, lesson, args) for s in lesson.scenes}
+        assert by_scene[3] == tmp_path / "voices" / "en_US-ryan-high.onnx"  # manager
+        assert by_scene[2] == tmp_path / "voices" / "en_US-joe-medium.onnx"  # intern
+        assert by_scene[1] == tmp_path / "narrator.onnx"  # text scene: narrator
+
+    def test_a_dialogue_lesson_with_no_voices_folder_is_a_narration_error(
+        self, tmp_path: Path
+    ) -> None:
+        lesson, _ = load_lesson(EXAMPLES / "us-sox-0003.yaml")
+        args = argparse.Namespace(piper_model=None, voices_dir=None)
+        with pytest.raises(NarrationError, match="voices-dir"):
+            cli._voice_model(lesson.scenes[1].visual, lesson, args)
+
+    def test_the_us_sox_0003_dry_run_exits_ok(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code = cli.main(
+            [str(EXAMPLES / "us-sox-0003.yaml"), "--out-dir", str(tmp_path / "out"), "--dry-run"]
+        )
+        assert code == cli.EXIT_OK
+        assert '"lesson": "US-SOX-0003"' in capsys.readouterr().out

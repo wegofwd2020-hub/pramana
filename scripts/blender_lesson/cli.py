@@ -38,7 +38,7 @@ from scripts.blender_lesson.assemble import (
 )
 from scripts.blender_lesson.narrate import NarrationError, probe_duration, synthesize
 from scripts.blender_lesson.plan import SceneJob, plan_jobs, timeline
-from scripts.blender_lesson.spec import Lesson, SpecError, load_lesson
+from scripts.blender_lesson.spec import DialogueVisual, Lesson, SpecError, load_lesson
 
 EXIT_OK = 0
 EXIT_SPEC = 2
@@ -64,7 +64,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--fps", type=int, default=24)
     parser.add_argument("--blender", default="blender", help="blender executable")
     parser.add_argument("--python", default="python3", help="python that has piper-tts installed")
-    parser.add_argument("--piper-model", type=Path, help="Piper .onnx voice model")
+    parser.add_argument("--piper-model", type=Path, help="narrator's Piper .onnx voice model")
+    parser.add_argument(
+        "--voices-dir",
+        type=Path,
+        help="folder with the cast voices, <voice>.onnx each (default: beside --piper-model)",
+    )
     parser.add_argument("--ffmpeg", default="ffmpeg")
     parser.add_argument("--ffprobe", default="ffprobe")
     parser.add_argument("--dry-run", action="store_true", help="plan only; run no tools")
@@ -88,13 +93,34 @@ def _plan_summary(lesson: Lesson, jobs: list[SceneJob]) -> dict[str, Any]:
     }
 
 
+def _voices_dir(args: argparse.Namespace) -> Path | None:
+    voices: Path | None = args.voices_dir
+    if voices is not None:
+        return voices
+    narrator: Path | None = args.piper_model
+    return narrator.parent if narrator is not None else None
+
+
+def _voice_model(scene_visual: object, lesson: Lesson, args: argparse.Namespace) -> Path:
+    """The voice for one scene: the speaker's cast voice, or the narrator's."""
+    if isinstance(scene_visual, DialogueVisual):
+        voices = {speaker.id: speaker.voice for speaker in lesson.cast}
+        folder = _voices_dir(args)
+        if folder is None:
+            raise NarrationError("a dialogue lesson needs --voices-dir or --piper-model")
+        return folder / f"{voices[scene_visual.speaker]}.onnx"
+    narrator: Path | None = args.piper_model
+    if narrator is None:
+        raise NarrationError("--piper-model is required for narrator scenes")
+    return narrator
+
+
 def _narrate(lesson: Lesson, out_dir: Path, args: argparse.Namespace) -> dict[int, float]:
-    if args.piper_model is None:
-        raise NarrationError("--piper-model is required for a real render")
     durations: dict[int, float] = {}
     for scene in lesson.scenes:
         wav = out_dir / "narration" / f"scene-{scene.id:02d}.wav"
-        synthesize(scene.narration, wav, python_bin=args.python, model=args.piper_model)
+        model = _voice_model(scene.visual, lesson, args)
+        synthesize(scene.narration, wav, python_bin=args.python, model=model)
         durations[scene.id] = probe_duration(wav, ffprobe=args.ffprobe)
     return durations
 
@@ -171,6 +197,7 @@ def _write_outputs(
         "render_script_sha256": _sha256(RENDER_SCRIPT),
         "blender": _blender_version(args),
         "piper_model": args.piper_model.name if args.piper_model else None,
+        "cast_voices": {speaker.id: speaker.voice for speaker in lesson.cast},
         "fps": args.fps,
         "resolution": [1280, 720],
         "scene_durations_s": {str(j.scene_id): round(j.duration_s, 3) for j in jobs},

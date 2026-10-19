@@ -14,7 +14,7 @@ from typing import Any
 
 from scripts.blender_lesson.layout import layout_visual
 from scripts.blender_lesson.primitives import primitive_to_dict
-from scripts.blender_lesson.spec import Lesson, Scene
+from scripts.blender_lesson.spec import DialogueVisual, Lesson, Scene
 
 #: Speaking-rate estimate used only when a scene's audio has not been measured.
 WORDS_PER_SECOND = 2.5
@@ -63,16 +63,31 @@ def plan_jobs(
     if fps <= 0:
         raise ValueError(f"fps must be positive, got {fps}")
     measured = durations or {}
+    seats = {speaker.id: (index, speaker.name) for index, speaker in enumerate(lesson.cast)}
     jobs: list[SceneJob] = []
     for scene in lesson.scenes:
         duration = measured.get(scene.id, estimate_duration(scene.narration))
         frames = max(1, math.ceil(duration * fps))
-        jobs.append(_job(scene, work_dir, fps, duration, frames))
+        if isinstance(scene.visual, DialogueVisual):
+            side, name = seats[scene.visual.speaker]
+            layout = layout_visual(
+                scene.visual, narration=scene.narration, speaker_name=name, side=side
+            )
+        else:
+            layout = layout_visual(scene.visual)
+        primitives = tuple(primitive_to_dict(p) for p in layout)
+        jobs.append(_job(scene, work_dir, fps, duration, frames, primitives))
     return jobs
 
 
-def _job(scene: Scene, work_dir: Path, fps: int, duration: float, frames: int) -> SceneJob:
-    primitives = tuple(primitive_to_dict(p) for p in layout_visual(scene.visual))
+def _job(
+    scene: Scene,
+    work_dir: Path,
+    fps: int,
+    duration: float,
+    frames: int,
+    primitives: tuple[dict[str, Any], ...],
+) -> SceneJob:
     return SceneJob(
         scene_id=scene.id,
         narration=scene.narration,

@@ -75,6 +75,16 @@ Outputs in `out/us-sox-0001/`:
 - `provenance.json`, the hashes that pin this exact artifact
 - `work/` and `narration/`, intermediates that can be deleted once reviewed
 
+### Dialogue scenes (cast and voices)
+
+A lesson can have a cast of up to two speakers. Each speaker has a Piper voice, and
+a `dialogue` scene shows its narration as a speech bubble under the speaker's name.
+Cast voices are read from `--voices-dir` (default: the folder holding `--piper-model`),
+one `<voice>.onnx` per cast entry. Download each cast voice the same way as the
+narrator, with `setup_piper --voice <name>` or by hand. Example: `examples/us-sox-0003.yaml`.
+
+Bubble text is capped at 160 characters so it fits the frame.
+
 ## 3. Exit codes
 
 | Code | Meaning |

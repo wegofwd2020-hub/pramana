@@ -1,0 +1,53 @@
+# US-SOX-0003 — fraud awareness, reporting and whistleblower protection (§806).
+# DRAFT script for SME and legal review (gate 1). Status stays 'draft' until a
+# human approves it; the renderer refuses drafts without --allow-draft.
+#
+# Narration avoids the "§" symbol because Piper reads it poorly; the on-screen
+# headlines keep it. Confirm the §806 wording against framework_sox.md before approval.
+# Voice names are Piper voices from huggingface.co/rhasspy/piper-voices; check each
+# one by listening before approval.
+id: US-SOX-0003
+title: "Fraud awareness, reporting and whistleblower protection"
+clause: "docs/frameworks/framework_sox.md#section-806"
+status: draft
+cast:
+  - id: manager
+    name: "Manager"
+    voice: en_US-ryan-high
+  - id: intern
+    name: "Intern"
+    voice: en_US-joe-medium
+scenes:
+  - id: 1
+    narration: "This lesson covers how to spot financial fraud, how to report it, and how the law protects you when you do."
+    visual: { kind: text, headline: "Fraud awareness and reporting" }
+  - id: 2
+    narration: "Something doesn't look right. A vendor payment was approved without the second signature, again."
+    visual: { kind: dialogue, speaker: intern }
+  - id: 3
+    narration: "Good catch. Tell me exactly what you saw, and when you saw it."
+    visual: { kind: dialogue, speaker: manager }
+  - id: 4
+    narration: "Should I say something? I'm new, and I don't want to look like I'm making trouble."
+    visual: { kind: dialogue, speaker: intern }
+  - id: 5
+    narration: "Raising a concern in good faith is part of the job. Section 806 protects you from retaliation for reporting suspected fraud."
+    visual: { kind: dialogue, speaker: manager }
+  - id: 6
+    narration: "What counts as a red flag? I want to get it right."
+    visual: { kind: dialogue, speaker: intern }
+  - id: 7
+    narration: "Missing approvals, payments to unfamiliar vendors, records changed after the fact, and pressure to skip a control."
+    visual: { kind: dialogue, speaker: manager }
+  - id: 8
+    narration: "What if I'm not comfortable going to my manager?"
+    visual: { kind: dialogue, speaker: intern }
+  - id: 9
+    narration: "Use any channel: your manager, Compliance, or the anonymous hotline. You can stay anonymous."
+    visual: { kind: dialogue, speaker: manager }
+  - id: 10
+    narration: "You can report through your manager, Compliance, or the anonymous hotline. Retaliation for good-faith reports is prohibited."
+    visual: { kind: text, headline: "Channels: manager, Compliance, anonymous hotline" }
+  - id: 11
+    narration: "Know the red flags, report what you see through any channel, and know that section 806 protects you."
+    visual: { kind: text, headline: "Know the red flags. Report. Stay protected." }
