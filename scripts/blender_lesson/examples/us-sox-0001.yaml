@@ -1,0 +1,27 @@
+# US-SOX-0001 — §404 ICFR awareness. DRAFT narration, drawn from
+# docs/frameworks/framework_sox.md#section-404. Status is 'draft' until a human
+# approves the script (gate 1); the renderer refuses drafts without --allow-draft.
+id: US-SOX-0001
+title: "§404 internal-controls (ICFR) awareness"
+clause: "docs/frameworks/framework_sox.md#section-404"
+status: draft
+scenes:
+  - id: 1
+    narration: "Section 404 requires management to assess internal control over financial reporting."
+    visual: { kind: text, headline: "Section 404: internal control" }
+  - id: 2
+    narration: "Management designs the controls, tests them, reports any deficiencies, and assesses the result."
+    visual:
+      kind: flow
+      steps: ["Design controls", "Test controls", "Report deficiencies", "Assess"]
+  - id: 3
+    narration: "Staff in finance, IT and internal audit must be trained on these controls."
+    visual: { kind: roster, groups: ["Finance", "IT", "Internal audit"] }
+  - id: 4
+    narration: "Each in-scope person completes the course, passes the quiz, and repeats it every year."
+    visual:
+      kind: checklist
+      items: ["Know the controls you own", "Report suspected fraud", "Complete this course yearly"]
+  - id: 5
+    narration: "Completion is recorded in a tamper-evident audit trail, ready for the external auditor."
+    visual: { kind: text, headline: "Evidence: who, when, which version" }

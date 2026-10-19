@@ -1,0 +1,18 @@
+# Mock data for tests. Small, valid, and approved so the render path is reachable.
+id: TEST-LESSON-1
+title: "Sample lesson"
+clause: "docs/frameworks/framework_sox.md#section-404"
+status: approved
+scenes:
+  - id: 1
+    narration: "Every control has an owner."
+    visual: { kind: text, headline: "Controls have owners" }
+  - id: 2
+    narration: "Controls move through design, testing and assessment."
+    visual: { kind: flow, steps: ["Design", "Test", "Assess"] }
+  - id: 3
+    narration: "Finance and IT are in scope."
+    visual: { kind: roster, groups: ["Finance", "IT"] }
+  - id: 4
+    narration: "Complete the checklist each year."
+    visual: { kind: checklist, items: ["Read the policy", "Pass the quiz"] }
