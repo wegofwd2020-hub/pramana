@@ -140,7 +140,7 @@ def _assemble(
         )
         clips.append(clip)
     list_file = out_dir / "clips" / "concat.txt"
-    list_file.write_text(build_concat_list(clips), encoding="utf-8")
+    list_file.write_text(build_concat_list(clips, list_file.parent), encoding="utf-8")
     video = out_dir / "lesson.mp4"
     run_tool(build_concat_cmd(list_file=list_file, out_video=video))
     return video

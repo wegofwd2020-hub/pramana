@@ -7,6 +7,7 @@ done by :func:`run_tool`, which turns any failure into :class:`AssemblyError`.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
@@ -77,9 +78,19 @@ def build_scene_clip_cmd(
     ]
 
 
-def build_concat_list(clips: Sequence[Path]) -> str:
-    """The concat-demuxer list file for the scene clips, in order."""
-    return "".join(f"file '{clip.as_posix()}'\n" for clip in clips)
+def build_concat_list(clips: Sequence[Path], list_dir: Path) -> str:
+    """The concat-demuxer list file for the scene clips, in order.
+
+    ffmpeg resolves each path in a concat list against the list file's own folder,
+    not the working directory, so every path is written relative to ``list_dir``.
+    A path written relative to the working directory would be applied twice.
+    """
+    base = list_dir.resolve()
+    lines = []
+    for clip in clips:
+        relative = Path(os.path.relpath(clip.resolve(), base)).as_posix()
+        lines.append(f"file '{relative}'\n")
+    return "".join(lines)
 
 
 def build_concat_cmd(*, list_file: Path, out_video: Path) -> list[str]:

@@ -246,7 +246,7 @@ class TestAssemble:
         assert "-shortest" in cmd
 
     def test_concat_list_is_in_order(self, tmp_path: Path) -> None:
-        text = build_concat_list([tmp_path / "a.mp4", tmp_path / "b.mp4"])
+        text = build_concat_list([tmp_path / "a.mp4", tmp_path / "b.mp4"], tmp_path)
         assert text.index("a.mp4") < text.index("b.mp4")
         assert text.count("file '") == 2
 
@@ -564,3 +564,28 @@ class TestRenderBpyImportsInBlender:
         )
         assert proc.returncode == 0, proc.stderr
         assert proc.stdout.strip() == "16.0 9.0"
+
+
+class TestConcatListPaths:
+    """ffmpeg resolves concat paths from the list file folder, so write them relative to it."""
+
+    def test_a_relative_clip_path_is_written_relative_to_the_list_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The mock output tree sits under a relative root, as in the real run.
+        monkeypatch.chdir(tmp_path)
+        clips_dir = Path("out/us-sox-0001/clips")
+        clips = [clips_dir / "scene-01.mp4", clips_dir / "scene-02.mp4"]
+        text = build_concat_list(clips, clips_dir)
+        assert text == "file 'scene-01.mp4'\nfile 'scene-02.mp4'\n"
+
+    def test_the_listed_files_resolve_from_the_list_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        clips_dir = Path("out/clips")
+        clips_dir.mkdir(parents=True)
+        for name in ("scene-01.mp4", "scene-02.mp4"):
+            (clips_dir / name).write_bytes(b"x")
+        text = build_concat_list([clips_dir / "scene-01.mp4"], clips_dir)
+        assert (clips_dir / text.split("'")[1]).is_file()
