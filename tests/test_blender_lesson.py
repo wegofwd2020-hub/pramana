@@ -938,3 +938,18 @@ class TestPictures:
         for path in fresh:
             shipped = EXAMPLES / "assets" / "us-sox-0003" / path.name
             assert shipped.read_bytes() == path.read_bytes(), f"{path.name} is out of date"
+
+
+class TestColourManagement:
+    def test_the_render_uses_the_standard_view_transform(self, tmp_path: Path) -> None:
+        bpy = MagicMock()
+        job = {
+            "scene_id": 1,
+            "fps": 24,
+            "frames": 10,
+            "frames_dir": str(tmp_path / "frames"),
+            "resolution": [1280, 720],
+            "primitives": [],
+        }
+        build_scene(bpy, job)
+        assert bpy.context.scene.view_settings.view_transform == "Standard"

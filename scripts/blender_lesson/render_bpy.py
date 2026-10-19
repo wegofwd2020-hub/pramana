@@ -207,6 +207,10 @@ def _render_settings(bpy: Any, job: dict[str, Any]) -> None:
     scene = bpy.context.scene
     width, height = job["resolution"]
     scene.render.engine = ENGINE
+    # Blender's default view transform (Filmic) washes bright colours toward grey.
+    # Standard shows the colours the spec asks for, so the pictures and bubbles keep their tone.
+    scene.view_settings.view_transform = "Standard"
+    scene.view_settings.look = "None"
     scene.render.resolution_x = int(width)
     scene.render.resolution_y = int(height)
     scene.render.resolution_percentage = 100
