@@ -212,6 +212,25 @@ class TestUvicornProxyTrust:
         assert "--forwarded-allow-ips" in DOCKERFILE.read_text(encoding="utf-8")
 
 
+class TestUvicornRootPath:
+    """The mount prefix must reach uvicorn, or /docs and the OpenAPI servers URL
+    point at the bare host behind nginx. Nothing raises if it is missing."""
+
+    def test_the_image_passes_root_path_to_uvicorn(self) -> None:
+        assert "--root-path" in DOCKERFILE.read_text(encoding="utf-8")
+
+    def test_it_is_derived_from_settings_not_hardcoded(self) -> None:
+        """One source of truth: PUBLIC_BASE_URL via Settings.root_path."""
+        text = DOCKERFILE.read_text(encoding="utf-8")
+        assert "get_settings().root_path" in text
+        assert "/pramana" not in text.split("CMD", 1)[1]
+
+    def test_the_app_factory_does_not_pass_root_path_to_fastapi(self) -> None:
+        """The constructor argument is deprecated; the server owns the prefix."""
+        app_src = (ROOT / "pramana" / "api" / "app.py").read_text(encoding="utf-8")
+        assert "root_path=" not in app_src
+
+
 class TestImageShipsOperationalScripts:
     """The runtime image must contain ``scripts/``.
 

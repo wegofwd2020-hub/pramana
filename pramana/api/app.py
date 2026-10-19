@@ -60,11 +60,11 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         docs_url="/docs" if docs_enabled else None,
         redoc_url="/redoc" if docs_enabled else None,
         openapi_url="/openapi.json" if docs_enabled else None,
-        # Served under a path prefix in production (mambakkam.net/pramana). nginx
-        # strips the prefix before proxying, so the app sees bare paths; root_path
-        # is what makes /docs and the OpenAPI servers URL re-add it. Empty for a
-        # bare host — see Settings.root_path.
-        root_path=settings.root_path,
+        # No root_path here. Served under a path prefix in production
+        # (mambakkam.net/pramana), nginx strips the prefix before proxying, and the
+        # server — uvicorn's --root-path, set from Settings.root_path in the image
+        # CMD — tells FastAPI to re-add it to /docs and the OpenAPI servers URL.
+        # The constructor argument is deprecated in FastAPI 0.148+.
     )
 
     register_exception_handlers(app)

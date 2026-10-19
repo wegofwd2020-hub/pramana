@@ -91,8 +91,9 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.deploy}
       ENVIRONMENT: production
       # Externally reachable origin + path prefix. Drives the certificate verify
-      # link and FastAPI root_path. `:?` because a production deploy that forgot
-      # it would print relative verify links and mount /docs at the wrong path.
+      # link, and (via Settings.root_path) the uvicorn --root-path the image
+      # starts with. `:?` because a production deploy that forgot it would print
+      # relative verify links and mount /docs at the wrong path.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?set PUBLIC_BASE_URL, e.g. https://mambakkam.net/pramana}
       # Whose X-Forwarded-For uvicorn believes. The nginx hop hands us the real
       # client (CF-Connecting-IP); this must be the compose gateway, never "*".

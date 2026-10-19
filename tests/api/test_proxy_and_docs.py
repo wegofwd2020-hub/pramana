@@ -57,20 +57,34 @@ class TestApiDocsExposure:
 class TestPathMountRootPath:
     """Served under ``mambakkam.net/pramana``, FastAPI must know its prefix.
 
-    Without ``root_path`` the OpenAPI ``servers`` URL and every link ``/docs``
-    generates point at the bare host, so an operator opening the docs behind the
-    proxy hits 404s. ``root_path`` is derived from ``public_base_url``.
+    nginx strips ``/pramana`` before proxying, so the app receives bare paths.
+    The prefix is supplied by the server (``uvicorn --root-path``, set from
+    ``Settings.root_path`` in the image CMD), not by the ``FastAPI`` constructor,
+    which FastAPI 0.148 deprecates. Without the prefix the OpenAPI ``servers`` URL
+    and every ``/docs`` link point at the bare host, so an operator opening the
+    docs behind the proxy hits 404s.
     """
 
-    def test_root_path_reflects_the_public_base_url_prefix(self) -> None:
+    def test_openapi_servers_url_includes_the_mount_prefix(self) -> None:
         app = create_app(
             settings=Settings(secret_key="x", public_base_url="https://mambakkam.net/pramana")
         )  # type: ignore[arg-type]
-        assert app.root_path == "/pramana"
+        client = TestClient(app, root_path="/pramana")
+        servers = client.get("/openapi.json").json()["servers"]
+        assert servers == [{"url": "/pramana"}]
 
-    def test_root_path_is_empty_without_a_prefix(self) -> None:
+    def test_openapi_servers_url_is_bare_without_a_prefix(self) -> None:
         app = create_app(
             settings=Settings(secret_key="x", public_base_url="https://pramana.mambakkam.net")
+        )  # type: ignore[arg-type]
+        client = TestClient(app)
+        servers = client.get("/openapi.json").json().get("servers", [])
+        assert all(s.get("url") in ("", "/") for s in servers)
+
+    def test_the_constructor_no_longer_receives_root_path(self) -> None:
+        """Passing root_path to FastAPI() is deprecated; the server owns it now."""
+        app = create_app(
+            settings=Settings(secret_key="x", public_base_url="https://mambakkam.net/pramana")
         )  # type: ignore[arg-type]
         assert app.root_path == ""
 

@@ -97,6 +97,12 @@ EXPOSE 8000
 # entrypoint would race, and 0007 (role seed) and 0009 (grants) are not things
 # to apply concurrently. Run `alembic upgrade head` as a discrete step.
 ENV FORWARDED_ALLOW_IPS=172.16.0.0/12
+# --root-path is the URL prefix nginx mounts us under (e.g. /pramana), read from
+# PUBLIC_BASE_URL through Settings so there is one source of truth. It is what
+# makes /docs and the OpenAPI servers URL include the prefix. Settings is
+# resolved here, so a missing or malformed PUBLIC_BASE_URL fails the container at
+# start rather than serving links that point at the bare host.
 CMD ["sh", "-c", "exec uvicorn --factory pramana.api.app:create_app \
      --host 0.0.0.0 --port 8000 \
+     --root-path \"$(python -c 'from pramana.config import get_settings; print(get_settings().root_path)')\" \
      --proxy-headers --forwarded-allow-ips \"$FORWARDED_ALLOW_IPS\""]
