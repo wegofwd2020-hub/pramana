@@ -107,9 +107,10 @@ All design documents live under [`docs/`](./docs).
 > commission → ingest → human approval → publish → assign → play → grade → certify →
 > **verify**. That loop works end to end and is covered by tests against real Postgres.
 > First release is scoped to **SOX** for a single named client, and it is **not yet
-> deployed**. Every tracked feature is complete; what remains is deployment —
-> the two-role database topology and the Object-Lock bucket described in
-> [`SECURITY.md`](./SECURITY.md), neither of which application code can do.
+> deployed**. The code for every tracked feature is complete. What remains is
+> operational: the two-role database topology and the Object-Lock bucket described
+> in [`SECURITY.md`](./SECURITY.md), a decision on encryption at rest, and the first
+> production deployment. The table below marks the items still open.
 
 > **The table below is generated** from [`project-status.yaml`](./project-status.yaml),
 > which is the single source of truth. Edit the manifest, then run `make status`; a test
@@ -136,12 +137,16 @@ All design documents live under [`docs/`](./docs).
 | Assignment / player / certificate runtime | ✅ Complete |
 | Audit-chain verification tooling and evidence export | ✅ Complete |
 | Role administration (audited grants/revokes + operator bootstrap) | ✅ Complete |
-| S3 Object Lock (WORM) archival of the audit log | ✅ Complete |
+| S3 Object Lock (WORM) archival of the audit log (code complete; not yet run in a deployment) | 🚧 In progress |
 | Certificate PDF (rendered on demand from pinned facts) | ✅ Complete |
 | Container image + local Postgres/migrate/API stack, liveness and readiness probes | ✅ Complete |
 | Per-framework audit-binder PDF (US-SOX-0006 sample packages) | ✅ Complete |
 | Aggregate CSV reports (population, training matrix, exceptions) | ✅ Complete |
 | Consumer subscription (B2C self-serve: buy package → lessons → quiz → view/completion tracking) | ✅ Complete |
+| Two-role database topology (app role cannot UPDATE/DELETE audit_log; APP_DB_ROLE adopted in deployment) | 🚧 In progress |
+| Encryption at rest for the database volume (verified absent 2026-09-09; decision and implementation pending) | ⏳ Planned |
+| Generated SOX video lessons (pilot footage failed fidelity gate 2; blocked on wegofwd-video#6) | ⏳ Planned |
+| First production deployment to mambakkam.net/pramana (smoke-tested behind nginx) | ⏳ Planned |
 
 <!-- END GENERATED: status -->
 

@@ -66,8 +66,8 @@ features:
     name: Role administration (audited grants/revokes + operator bootstrap)
     status: done
   - id: worm-archival
-    name: S3 Object Lock (WORM) archival of the audit log
-    status: done
+    name: S3 Object Lock (WORM) archival of the audit log (code complete; not yet run in a deployment)
+    status: in-progress
   - id: certificate-pdf
     name: Certificate PDF (rendered on demand from pinned facts)
     status: done
@@ -83,3 +83,15 @@ features:
   - id: consumer-subscription
     name: "Consumer subscription (B2C self-serve: buy package → lessons → quiz → view/completion tracking)"
     status: done
+  - id: two-role-db-topology
+    name: Two-role database topology (app role cannot UPDATE/DELETE audit_log; APP_DB_ROLE adopted in deployment)
+    status: in-progress
+  - id: encryption-at-rest
+    name: Encryption at rest for the database volume (verified absent 2026-09-09; decision and implementation pending)
+    status: pending
+  - id: sox-video-lessons
+    name: Generated SOX video lessons (pilot footage failed fidelity gate 2; blocked on wegofwd-video#6)
+    status: pending
+  - id: production-deployment
+    name: First production deployment to mambakkam.net/pramana (smoke-tested behind nginx)
+    status: pending

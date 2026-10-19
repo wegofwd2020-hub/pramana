@@ -28,25 +28,16 @@ built the seam, the state machine, and the DB constraints. Open item 6 from
 decision #274, and who records that) is answered: yes, and this ticket +
 `docs/02_resolved_decisions.md` are where it's recorded.
 
-**ACCEPTANCE GAP — the transcript is persisted but never reaches the
-learner.** `course_version.transcript` (added by `0012`, pinned to the
-certificate at publish, proven end-to-end in
-`tests/integration/test_publish_transcript.py`) is currently **write-only**.
-A repo-wide grep finds writers and tests and no readers: `services/player.py`
-(`get_player_manifest` / `PlayerManifest`) and `services/consumer/play.py`
-(`start_view` / `PlaySessionManifest`) both build their manifests from
-`CourseVersion` without ever reading `.transcript`, and no response schema in
-`pramana/api/schemas.py` (`PlayerManifestOut` et al.) carries a `transcript`
-field. Since the pilot's briefs render silent footage (`native_audio=False`
-on the local-preview path — see "Audio is not covered" below), **a learner
-who opens the pilot lesson today gets silent video and zero words.** This is
-exactly the unreachable-control failure mode this ticket's own spec warns
-against, not a nice-to-have. Wiring it is real scope, deliberately not done
-here: it needs `PlayerManifest`/`PlaySessionManifest` to gain a `transcript`
-field, `get_player_manifest`/`start_view` to read `version.transcript`, and
-`pramana/api/schemas.py`'s player-manifest response model(s) to carry it
-through to the client. Do not ship the pilot to a real learner before this is
-closed.
+**Transcript reaches the learner — CLOSED (verified 2026-10-19).** An earlier
+version of this ticket recorded `course_version.transcript` as write-only. That
+is no longer true: it flows from `CourseVersion` through `get_player_manifest`
+(`services/player.py`) and `start_view` (`services/consumer/play.py`) into
+`PlayerManifestOut` and `PlaySessionOut` (`api/schemas.py`) and out of the
+routes. Coverage: `tests/integration/test_learner_runtime.py`,
+`test_learner_runtime_api.py` and `test_consumer_play.py`, which assert the
+transcript at the service layer and in the serialized response, plus the
+`None` case for versions published before `0012`. A learner who opens the pilot
+lesson now gets the approved narration as text, even though the footage is silent.
 
 **Render environment (the `render` extra) — pin, and why.** The spec's
 argument for rendering locally at all is reproducibility ("deterministic by
